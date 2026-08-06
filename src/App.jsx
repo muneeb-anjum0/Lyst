@@ -727,6 +727,169 @@ function getItemMetadata(item) {
     .join(" · ");
 }
 
+
+const ITEM_HISTORY_LIMIT = 60;
+const SMART_SUGGESTION_LIMIT = 6;
+const RECENT_COMPLETED_LIMIT = 5;
+
+function normalizeItemKey(value) {
+  return value
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/&/g, " and ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function toMillis(value) {
+  if (!value) return 0;
+
+  if (typeof value?.toMillis === "function") {
+    return value.toMillis();
+  }
+
+  if (typeof value?.toDate === "function") {
+    return value.toDate().getTime();
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function getSafeHistory(history) {
+  if (!Array.isArray(history)) return [];
+
+  return history
+    .filter(
+      (entry) =>
+        entry &&
+        typeof entry.text === "string" &&
+        typeof entry.key === "string",
+    )
+    .map((entry) => ({
+      key: entry.key,
+      text: entry.text,
+      count: Math.max(1, Number(entry.count) || 1),
+      lastUsedAt: Number(entry.lastUsedAt) || 0,
+      lastCompletedAt: Number(entry.lastCompletedAt) || 0,
+      quantity:
+        entry.quantity === null ||
+        entry.quantity === undefined ||
+        entry.quantity === ""
+          ? null
+          : Number(entry.quantity),
+      quantityUnit: entry.quantityUnit || "",
+    }));
+}
+
+function buildNextHistory(history, item, options = {}) {
+  const key = normalizeItemKey(item.text);
+
+  if (!key) return getSafeHistory(history);
+
+  const now = Date.now();
+  const safeHistory = getSafeHistory(history);
+  const existing = safeHistory.find((entry) => entry.key === key);
+
+  const nextEntry = {
+    key,
+    text: item.text.trim(),
+    count: Math.max(
+      1,
+      (existing?.count || 0) + (options.incrementCount === false ? 0 : 1),
+    ),
+    lastUsedAt:
+      options.touchUsed === false
+        ? existing?.lastUsedAt || 0
+        : now,
+    lastCompletedAt: options.completed
+      ? now
+      : existing?.lastCompletedAt || 0,
+    quantity:
+      item.quantity === null ||
+      item.quantity === undefined ||
+      item.quantity === ""
+        ? existing?.quantity ?? null
+        : Number(item.quantity),
+    quantityUnit:
+      item.quantityUnit || existing?.quantityUnit || "",
+  };
+
+  return [
+    nextEntry,
+    ...safeHistory.filter((entry) => entry.key !== key),
+  ]
+    .sort((first, second) => {
+      const firstScore =
+        first.count * 1_000_000 +
+        Math.max(first.lastUsedAt, first.lastCompletedAt);
+
+      const secondScore =
+        second.count * 1_000_000 +
+        Math.max(second.lastUsedAt, second.lastCompletedAt);
+
+      return secondScore - firstScore;
+    })
+    .slice(0, ITEM_HISTORY_LIMIT);
+}
+
+function quantitiesCanMerge(existingItem, incomingItem) {
+  const existingUnit = normalizeItemKey(existingItem.quantityUnit || "");
+  const incomingUnit = normalizeItemKey(incomingItem.quantityUnit || "");
+
+  return (
+    !existingUnit ||
+    !incomingUnit ||
+    existingUnit === incomingUnit
+  );
+}
+
+function mergeQuantities(existingItem, incomingItem) {
+  const existingQuantity =
+    existingItem.quantity === null ||
+    existingItem.quantity === undefined ||
+    existingItem.quantity === ""
+      ? null
+      : Number(existingItem.quantity);
+
+  const incomingQuantity =
+    incomingItem.quantity === null ||
+    incomingItem.quantity === undefined ||
+    incomingItem.quantity === ""
+      ? null
+      : Number(incomingItem.quantity);
+
+  if (!quantitiesCanMerge(existingItem, incomingItem)) {
+    return {
+      quantity: incomingQuantity ?? existingQuantity,
+      quantityUnit:
+        incomingItem.quantityUnit ||
+        existingItem.quantityUnit ||
+        "",
+    };
+  }
+
+  if (existingQuantity === null && incomingQuantity === null) {
+    return {
+      quantity: null,
+      quantityUnit:
+        incomingItem.quantityUnit ||
+        existingItem.quantityUnit ||
+        "",
+    };
+  }
+
+  return {
+    quantity: (existingQuantity || 0) + (incomingQuantity || 0),
+    quantityUnit:
+      incomingItem.quantityUnit ||
+      existingItem.quantityUnit ||
+      "",
+  };
+}
+
 /* -------------------------------------------------------------------------- */
 /* App                                                                        */
 /* -------------------------------------------------------------------------- */
@@ -942,6 +1105,7 @@ export default function App() {
         {
           title: cleanTitle,
           archived: false,
+          itemHistory: [],
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         },
@@ -1045,7 +1209,9 @@ export default function App() {
 
     try {
       const itemSnapshot = await new Promise((resolve, reject) => {
-        const unsubscribe = onSnapshot(
+        let unsubscribe = () => {};
+
+        unsubscribe = onSnapshot(
           itemsReference,
           (snapshot) => {
             unsubscribe();
@@ -1087,6 +1253,9 @@ export default function App() {
         await setDoc(listReference, {
           title: list.title,
           archived: Boolean(list.archived),
+          itemHistory: Array.isArray(list.itemHistory)
+            ? list.itemHistory
+            : [],
           createdAt: list.createdAt || serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
@@ -1707,10 +1876,17 @@ function ListScreen({
   const [menuOpen, setMenuOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [naturalPreview, setNaturalPreview] = useState(null);
+  const [duplicatePrompt, setDuplicatePrompt] = useState(null);
+  const [smartOpen, setSmartOpen] = useState(true);
 
   const inputRef = useRef(null);
   const longPressTimer = useRef(null);
   const longPressTriggered = useRef(false);
+
+  const listReference = useMemo(
+    () => doc(db, "users", user.uid, "lists", list.id),
+    [list.id, user.uid],
+  );
 
   useEffect(() => {
     const itemsQuery = query(
@@ -1759,18 +1935,54 @@ function ListScreen({
     };
   }, []);
 
-  const remainingItems = useMemo(
-    () => items.filter((item) => !item.completed).length,
+  const activeItems = useMemo(
+    () => items.filter((item) => !item.completed),
     [items],
   );
 
-  const sortedItems = useMemo(
-    () => [
-      ...items.filter((item) => !item.completed),
-      ...items.filter((item) => item.completed),
-    ],
+  const completedItems = useMemo(
+    () => items.filter((item) => item.completed),
     [items],
   );
+
+  const remainingItems = activeItems.length;
+
+  const sortedItems = useMemo(
+    () => [...activeItems, ...completedItems],
+    [activeItems, completedItems],
+  );
+
+  const recentCompleted = useMemo(
+    () =>
+      [...completedItems]
+        .sort(
+          (first, second) =>
+            toMillis(second.completedAt) -
+            toMillis(first.completedAt),
+        )
+        .slice(0, RECENT_COMPLETED_LIMIT),
+    [completedItems],
+  );
+
+  const smartSuggestions = useMemo(() => {
+    const activeKeys = new Set(
+      activeItems.map((item) => normalizeItemKey(item.text)),
+    );
+
+    return getSafeHistory(list.itemHistory)
+      .filter((entry) => !activeKeys.has(entry.key))
+      .sort((first, second) => {
+        if (second.count !== first.count) {
+          return second.count - first.count;
+        }
+
+        return second.lastUsedAt - first.lastUsedAt;
+      })
+      .slice(0, SMART_SUGGESTION_LIMIT);
+  }, [activeItems, list.itemHistory]);
+
+  const hasSmartContent =
+    smartSuggestions.length > 0 || recentCompleted.length > 0;
 
   function startLongPress(event, item) {
     if (event.pointerType === "mouse" && event.button !== 0) {
@@ -1809,52 +2021,131 @@ function ListScreen({
     setEditingItem(item);
   }
 
-  async function saveItem(parsedItem) {
-    if (!parsedItem.text.trim() || adding) return;
+  async function saveHistory(item, options = {}) {
+    const nextHistory = buildNextHistory(
+      list.itemHistory,
+      item,
+      options,
+    );
+
+    await updateDoc(listReference, {
+      itemHistory: nextHistory,
+      updatedAt: serverTimestamp(),
+    });
+  }
+
+  async function createItem(parsedItem) {
+    await addDoc(
+      collection(
+        db,
+        "users",
+        user.uid,
+        "lists",
+        list.id,
+        "items",
+      ),
+      {
+        text: parsedItem.text.trim(),
+        quantity:
+          parsedItem.quantity === null ||
+          parsedItem.quantity === ""
+            ? null
+            : Number(parsedItem.quantity),
+        quantityUnit: parsedItem.quantityUnit || "",
+        dueAt: parsedItem.dueAt || null,
+        rawInput: parsedItem.rawInput || parsedItem.text.trim(),
+        timesAdded: 1,
+        completed: false,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        completedAt: null,
+      },
+    );
+
+    await saveHistory(parsedItem);
+  }
+
+  async function mergeDuplicate(existingItem, parsedItem) {
+    const mergedQuantity = mergeQuantities(
+      existingItem,
+      parsedItem,
+    );
+
+    await updateDoc(
+      doc(
+        db,
+        "users",
+        user.uid,
+        "lists",
+        list.id,
+        "items",
+        existingItem.id,
+      ),
+      {
+        quantity: mergedQuantity.quantity,
+        quantityUnit: mergedQuantity.quantityUnit,
+        dueAt: parsedItem.dueAt || existingItem.dueAt || null,
+        rawInput: parsedItem.rawInput || existingItem.rawInput || "",
+        timesAdded: (Number(existingItem.timesAdded) || 1) + 1,
+        updatedAt: serverTimestamp(),
+      },
+    );
+
+    await saveHistory(
+      {
+        ...existingItem,
+        ...parsedItem,
+        quantity: mergedQuantity.quantity,
+        quantityUnit: mergedQuantity.quantityUnit,
+      },
+      {
+        incrementCount: true,
+      },
+    );
+  }
+
+  async function saveItem(parsedItem, options = {}) {
+    const cleanText = parsedItem.text.trim();
+
+    if (!cleanText || adding) return;
+
+    const duplicate = activeItems.find(
+      (item) =>
+        normalizeItemKey(item.text) === normalizeItemKey(cleanText),
+    );
+
+    if (duplicate && !options.keepBoth && !options.mergeWith) {
+      setNaturalPreview(null);
+      setDuplicatePrompt({
+        existingItem: duplicate,
+        parsedItem: {
+          ...parsedItem,
+          text: cleanText,
+        },
+      });
+      return;
+    }
 
     try {
       setAdding(true);
 
-      await addDoc(
-        collection(
-          db,
-          "users",
-          user.uid,
-          "lists",
-          list.id,
-          "items",
-        ),
-        {
-          text: parsedItem.text.trim(),
-          quantity:
-            parsedItem.quantity === null ||
-            parsedItem.quantity === ""
-              ? null
-              : Number(parsedItem.quantity),
-          quantityUnit: parsedItem.quantityUnit || "",
-          dueAt: parsedItem.dueAt || null,
-          rawInput: parsedItem.rawInput || parsedItem.text.trim(),
-          completed: false,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-          completedAt: null,
-        },
-      );
+      if (options.mergeWith) {
+        await mergeDuplicate(options.mergeWith, parsedItem);
+        showToast("Merged with the existing item.");
+      } else {
+        await createItem(parsedItem);
 
-      await updateDoc(
-        doc(db, "users", user.uid, "lists", list.id),
-        {
-          updatedAt: serverTimestamp(),
-        },
-      );
+        if (options.keepBoth) {
+          showToast("Added as a separate item.");
+        } else if (!navigator.onLine) {
+          showToast("Saved offline. It will sync later.");
+        }
+      }
 
+      setDuplicatePrompt(null);
       setNaturalPreview(null);
       setNewItem("");
       inputRef.current?.focus();
-
-      if (!navigator.onLine) {
-        showToast("Saved offline. It will sync later.");
-      }
     } catch (error) {
       console.error(error);
       showToast("Could not add the item.");
@@ -1881,6 +2172,8 @@ function ListScreen({
   }
 
   async function toggleItem(item) {
+    const nextCompleted = !item.completed;
+
     try {
       await updateDoc(
         doc(
@@ -1893,15 +2186,78 @@ function ListScreen({
           item.id,
         ),
         {
-          completed: !item.completed,
-          completedAt: !item.completed ? serverTimestamp() : null,
+          completed: nextCompleted,
+          completedAt: nextCompleted ? serverTimestamp() : null,
           updatedAt: serverTimestamp(),
         },
       );
+
+      if (nextCompleted) {
+        await saveHistory(item, {
+          incrementCount: false,
+          touchUsed: false,
+          completed: true,
+        });
+      }
     } catch (error) {
       console.error(error);
       showToast("Could not update the item.");
     }
+  }
+
+  async function reAddCompleted(item) {
+    try {
+      setAdding(true);
+
+      await updateDoc(
+        doc(
+          db,
+          "users",
+          user.uid,
+          "lists",
+          list.id,
+          "items",
+          item.id,
+        ),
+        {
+          completed: false,
+          completedAt: null,
+          timesAdded: (Number(item.timesAdded) || 1) + 1,
+          updatedAt: serverTimestamp(),
+        },
+      );
+
+      await saveHistory(item, {
+        incrementCount: true,
+      });
+
+      showToast("Added back to the list.");
+    } catch (error) {
+      console.error(error);
+      showToast("Could not add the item back.");
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function addSuggestion(suggestion) {
+    const completedMatch = completedItems.find(
+      (item) => normalizeItemKey(item.text) === suggestion.key,
+    );
+
+    if (completedMatch) {
+      await reAddCompleted(completedMatch);
+      return;
+    }
+
+    await saveItem({
+      rawInput: suggestion.text,
+      text: suggestion.text,
+      quantity: suggestion.quantity,
+      quantityUnit: suggestion.quantityUnit,
+      dueAt: null,
+      hasNaturalData: false,
+    });
   }
 
   async function editItem(item, text) {
@@ -1923,6 +2279,16 @@ function ListScreen({
         {
           text: cleanText,
           updatedAt: serverTimestamp(),
+        },
+      );
+
+      await saveHistory(
+        {
+          ...item,
+          text: cleanText,
+        },
+        {
+          incrementCount: false,
         },
       );
 
@@ -1960,8 +2326,6 @@ function ListScreen({
   }
 
   async function clearCompleted() {
-    const completedItems = items.filter((item) => item.completed);
-
     if (completedItems.length === 0) {
       showToast("There are no completed items.");
       return;
@@ -2107,6 +2471,89 @@ function ListScreen({
           {remainingItems} {remainingItems === 1 ? "item" : "items"} left
         </p>
       </section>
+
+      {hasSmartContent && (
+        <section className="smart-panel">
+          <button
+            className="smart-panel-header"
+            type="button"
+            onClick={() => setSmartOpen((value) => !value)}
+          >
+            <span>
+              <strong>Smart picks</strong>
+              <small>Based on items used in this list</small>
+            </span>
+
+            <span className="smart-chevron">
+              {smartOpen ? "−" : "+"}
+            </span>
+          </button>
+
+          <AnimatePresence initial={false}>
+            {smartOpen && (
+              <motion.div
+                className="smart-panel-content"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+              >
+                {smartSuggestions.length > 0 && (
+                  <div className="smart-group">
+                    <span className="smart-label">Frequent</span>
+
+                    <div className="suggestion-chips">
+                      {smartSuggestions.map((suggestion) => (
+                        <motion.button
+                          key={suggestion.key}
+                          type="button"
+                          disabled={adding}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => addSuggestion(suggestion)}
+                        >
+                          <span>{suggestion.text}</span>
+                          <small>
+                            {suggestion.count > 1
+                              ? `${suggestion.count}×`
+                              : "Add"}
+                          </small>
+                        </motion.button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {recentCompleted.length > 0 && (
+                  <div className="smart-group">
+                    <span className="smart-label">
+                      Recently completed
+                    </span>
+
+                    <div className="recent-completed-list">
+                      {recentCompleted.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          disabled={adding}
+                          onClick={() => reAddCompleted(item)}
+                        >
+                          <span>
+                            <strong>{item.text}</strong>
+                            {getItemMetadata(item) && (
+                              <small>{getItemMetadata(item)}</small>
+                            )}
+                          </span>
+
+                          <b>Re-add</b>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </section>
+      )}
 
       <section className="items">
         {loading ? (
@@ -2258,6 +2705,24 @@ function ListScreen({
                 quantity: null,
                 quantityUnit: "",
                 dueAt: null,
+              })
+            }
+          />
+        )}
+
+        {duplicatePrompt && (
+          <DuplicateItemSheet
+            duplicate={duplicatePrompt}
+            adding={adding}
+            onClose={() => setDuplicatePrompt(null)}
+            onMerge={() =>
+              saveItem(duplicatePrompt.parsedItem, {
+                mergeWith: duplicatePrompt.existingItem,
+              })
+            }
+            onKeepBoth={() =>
+              saveItem(duplicatePrompt.parsedItem, {
+                keepBoth: true,
               })
             }
           />
@@ -2415,6 +2880,87 @@ function SearchSheet({
 /* -------------------------------------------------------------------------- */
 /* Sheets                                                                     */
 /* -------------------------------------------------------------------------- */
+
+function DuplicateItemSheet({
+  duplicate,
+  adding,
+  onClose,
+  onMerge,
+  onKeepBoth,
+}) {
+  const existingMetadata = getItemMetadata(
+    duplicate.existingItem,
+  );
+  const incomingMetadata = getItemMetadata(
+    duplicate.parsedItem,
+  );
+  const canMergeQuantity = quantitiesCanMerge(
+    duplicate.existingItem,
+    duplicate.parsedItem,
+  );
+
+  return (
+    <Sheet onClose={onClose}>
+      <div className="sheet-content duplicate-sheet">
+        <div className="sheet-handle" />
+
+        <header className="sheet-header">
+          <div>
+            <h2>Already on your list</h2>
+            <p className="sheet-subtitle">
+              Lyst found a matching active item.
+            </p>
+          </div>
+
+          <button type="button" onClick={onClose}>
+            Cancel
+          </button>
+        </header>
+
+        <div className="duplicate-comparison">
+          <div>
+            <span>Existing</span>
+            <strong>{duplicate.existingItem.text}</strong>
+            {existingMetadata && <small>{existingMetadata}</small>}
+          </div>
+
+          <div>
+            <span>New entry</span>
+            <strong>{duplicate.parsedItem.text}</strong>
+            {incomingMetadata && <small>{incomingMetadata}</small>}
+          </div>
+        </div>
+
+        {!canMergeQuantity && (
+          <p className="duplicate-note">
+            The units differ, so merging keeps the newest quantity and
+            unit instead of adding them together.
+          </p>
+        )}
+
+        <div className="duplicate-actions">
+          <motion.button
+            className="primary-button"
+            type="button"
+            disabled={adding}
+            whileTap={{ scale: 0.975 }}
+            onClick={onMerge}
+          >
+            {adding ? "Merging..." : "Merge details"}
+          </motion.button>
+
+          <button
+            type="button"
+            disabled={adding}
+            onClick={onKeepBoth}
+          >
+            Keep both
+          </button>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
 
 function NaturalInputSheet({
   parsedItem,
@@ -3212,6 +3758,159 @@ const styles = `
     font-weight: 700;
   }
 
+  .smart-panel {
+    margin: -4px 0 18px;
+    overflow: hidden;
+    border: 1px solid #e7e7e7;
+    border-radius: 16px;
+    background: #ffffff;
+  }
+
+  .smart-panel-header {
+    display: flex;
+    width: 100%;
+    min-height: 55px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 13px;
+    text-align: left;
+    border: 0;
+    background: #ffffff;
+  }
+
+  .smart-panel-header > span:first-child {
+    display: grid;
+    gap: 2px;
+  }
+
+  .smart-panel-header strong {
+    font-size: 0.82rem;
+  }
+
+  .smart-panel-header small {
+    color: #888888;
+    font-size: 0.66rem;
+  }
+
+  .smart-chevron {
+    display: grid;
+    width: 25px;
+    height: 25px;
+    place-items: center;
+    border-radius: 8px;
+    color: #666666;
+    background: #f4f4f4;
+    font-size: 1rem;
+  }
+
+  .smart-panel-content {
+    overflow: hidden;
+    border-top: 1px solid #eeeeee;
+  }
+
+  .smart-group {
+    padding: 11px 12px 12px;
+  }
+
+  .smart-group + .smart-group {
+    border-top: 1px solid #eeeeee;
+  }
+
+  .smart-label {
+    display: block;
+    margin-bottom: 8px;
+    color: #777777;
+    font-size: 0.65rem;
+    font-weight: 720;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .suggestion-chips {
+    display: flex;
+    gap: 7px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .suggestion-chips::-webkit-scrollbar {
+    display: none;
+  }
+
+  .suggestion-chips button {
+    display: flex;
+    min-width: max-content;
+    min-height: 35px;
+    gap: 8px;
+    align-items: center;
+    padding: 0 10px;
+    border: 1px solid #dfdfdf;
+    border-radius: 11px;
+    background: #ffffff;
+  }
+
+  .suggestion-chips button:disabled,
+  .recent-completed-list button:disabled {
+    opacity: 0.4;
+  }
+
+  .suggestion-chips span {
+    font-size: 0.76rem;
+    font-weight: 650;
+  }
+
+  .suggestion-chips small {
+    color: #888888;
+    font-size: 0.62rem;
+    font-weight: 700;
+  }
+
+  .recent-completed-list {
+    display: grid;
+  }
+
+  .recent-completed-list > button {
+    display: flex;
+    min-height: 44px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 1px;
+    text-align: left;
+    border: 0;
+    border-bottom: 1px solid #f0f0f0;
+    background: #ffffff;
+  }
+
+  .recent-completed-list > button:last-child {
+    border-bottom: 0;
+  }
+
+  .recent-completed-list > button > span {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+  }
+
+  .recent-completed-list strong {
+    overflow: hidden;
+    font-size: 0.78rem;
+    font-weight: 640;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .recent-completed-list small {
+    color: #888888;
+    font-size: 0.65rem;
+  }
+
+  .recent-completed-list b {
+    flex: 0 0 auto;
+    color: #555555;
+    font-size: 0.67rem;
+  }
+
   .lists,
   .items {
     border-top: 1px solid #eeeeee;
@@ -3587,6 +4286,57 @@ const styles = `
 
   .sheet-input {
     margin-bottom: 12px;
+  }
+
+  .duplicate-comparison {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .duplicate-comparison > div {
+    display: grid;
+    gap: 3px;
+    padding: 11px 12px;
+    border: 1px solid #e6e6e6;
+    border-radius: 12px;
+  }
+
+  .duplicate-comparison span {
+    color: #888888;
+    font-size: 0.64rem;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  .duplicate-comparison strong {
+    font-size: 0.86rem;
+  }
+
+  .duplicate-comparison small {
+    color: #777777;
+    font-size: 0.68rem;
+  }
+
+  .duplicate-note {
+    margin: 0 1px 13px;
+    color: #777777;
+    font-size: 0.7rem;
+    line-height: 1.45;
+  }
+
+  .duplicate-actions {
+    display: grid;
+    gap: 8px;
+  }
+
+  .duplicate-actions > button:last-child {
+    min-height: 43px;
+    border: 1px solid #dddddd;
+    border-radius: 12px;
+    background: #ffffff;
+    font-size: 0.8rem;
+    font-weight: 700;
   }
 
   .natural-field {
