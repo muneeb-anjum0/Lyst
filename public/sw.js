@@ -1,39 +1,49 @@
-const CACHE_VERSION = "lyst-shell-v1";
-const META_CACHE = "lyst-meta-v1";
+const APP_CACHE = "lyst-app-v4";
+const META_CACHE = "lyst-meta-v4";
 
 const CACHE_REFRESH_KEY = "/__lyst_cache_refresh__";
 const CACHE_DURATION = 60 * 24 * 60 * 60 * 1000;
 
-const APP_SHELL = ["/", "/index.html"];
+const CORE_FILES = [
+  "/",
+  "/index.html",
+  "/manifest.webmanifest",
+  "/logo.png",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png",
+  "/icons/apple-touch-icon-v2.png",
+  "/icons/maskable-512.png",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
-      .open(CACHE_VERSION)
-      .then((cache) => cache.addAll(APP_SHELL))
-      .then(() => self.skipWaiting()),
+      .open(APP_CACHE)
+      .then((cache) => cache.addAll(CORE_FILES)),
   );
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     Promise.all([
-      removeOldCaches(),
+      deleteOldCaches(),
       self.clients.claim(),
     ]),
   );
 });
 
 self.addEventListener("message", (event) => {
-  if (event.data?.type === "REFRESH_OFFLINE_CACHE") {
+  const messageType = event.data?.type;
+
+  if (messageType === "REFRESH_OFFLINE_CACHE") {
     event.waitUntil(refreshCacheTimestamp());
   }
 
-  if (event.data?.type === "CLEAR_OFFLINE_CACHE") {
+  if (messageType === "CLEAR_OFFLINE_CACHE") {
     event.waitUntil(clearLystCaches());
   }
 
-  if (event.data?.type === "SKIP_WAITING") {
+  if (messageType === "SKIP_WAITING") {
     self.skipWaiting();
   }
 });
@@ -52,72 +62,81 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  event.respondWith(handleAssetRequest(request));
+  if (
+    request.destination === "script" ||
+    request.destination === "style" ||
+    request.destination === "image" ||
+    request.destination === "font" ||
+    request.destination === "manifest"
+  ) {
+    event.respondWith(handleStaticRequest(request));
+  }
 });
 
 async function handleNavigationRequest(request) {
-  const cacheExpired = await hasCacheExpired();
-
-  if (cacheExpired) {
-    await clearAppShellCache();
-  }
+  const expired = await hasCacheExpired();
 
   try {
     const networkResponse = await fetch(request);
 
-    if (networkResponse?.ok) {
-      const cache = await caches.open(CACHE_VERSION);
+    if (networkResponse.ok) {
+      const cache = await caches.open(APP_CACHE);
+
       await cache.put("/index.html", networkResponse.clone());
+      await cache.put("/", networkResponse.clone());
     }
 
     return networkResponse;
   } catch {
-    if (cacheExpired) {
-      return offlineExpiredResponse();
+    if (expired) {
+      return createExpiredOfflineResponse();
     }
 
-    const cache = await caches.open(CACHE_VERSION);
+    const cache = await caches.open(APP_CACHE);
 
     return (
       (await cache.match("/index.html")) ||
       (await cache.match("/")) ||
-      offlineUnavailableResponse()
+      createUnavailableOfflineResponse()
     );
   }
 }
 
-async function handleAssetRequest(request) {
-  const cacheExpired = await hasCacheExpired();
-
-  if (cacheExpired) {
-    await clearAppShellCache();
-  }
-
-  const cache = await caches.open(CACHE_VERSION);
+async function handleStaticRequest(request) {
+  const cache = await caches.open(APP_CACHE);
   const cachedResponse = await cache.match(request);
 
-  if (cachedResponse && !cacheExpired) {
+  if (cachedResponse) {
+    refreshStaticFile(request, cache);
     return cachedResponse;
   }
 
   try {
     const networkResponse = await fetch(request);
 
-    if (networkResponse?.ok) {
+    if (networkResponse.ok) {
       await cache.put(request, networkResponse.clone());
     }
 
     return networkResponse;
   } catch {
-    if (cachedResponse && !cacheExpired) {
-      return cachedResponse;
-    }
-
     return new Response("", {
       status: 503,
       statusText: "Offline",
     });
   }
+}
+
+function refreshStaticFile(request, cache) {
+  fetch(request)
+    .then(async (networkResponse) => {
+      if (networkResponse.ok) {
+        await cache.put(request, networkResponse.clone());
+      }
+    })
+    .catch(() => {
+      // Keep using the cached file while offline.
+    });
 }
 
 async function refreshCacheTimestamp() {
@@ -139,9 +158,9 @@ async function getCacheTimestamp() {
 
   if (!response) return null;
 
-  const value = Number(await response.text());
+  const timestamp = Number(await response.text());
 
-  return Number.isFinite(value) ? value : null;
+  return Number.isFinite(timestamp) ? timestamp : null;
 }
 
 async function hasCacheExpired() {
@@ -152,7 +171,7 @@ async function hasCacheExpired() {
   return Date.now() - timestamp > CACHE_DURATION;
 }
 
-async function removeOldCaches() {
+async function deleteOldCaches() {
   const cacheNames = await caches.keys();
 
   await Promise.all(
@@ -160,15 +179,11 @@ async function removeOldCaches() {
       .filter(
         (cacheName) =>
           cacheName.startsWith("lyst-") &&
-          cacheName !== CACHE_VERSION &&
+          cacheName !== APP_CACHE &&
           cacheName !== META_CACHE,
       )
       .map((cacheName) => caches.delete(cacheName)),
   );
-}
-
-async function clearAppShellCache() {
-  await caches.delete(CACHE_VERSION);
 }
 
 async function clearLystCaches() {
@@ -181,114 +196,85 @@ async function clearLystCaches() {
   );
 }
 
-function offlineExpiredResponse() {
-  return new Response(
-    `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8">
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
-    >
-    <meta name="theme-color" content="#ffffff">
-    <title>Lyst</title>
-    <style>
-      * { box-sizing: border-box; }
-      body {
-        min-height: 100vh;
-        margin: 0;
-        display: grid;
-        place-items: center;
-        padding: 24px;
-        color: #111;
-        background: #fff;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      }
-      main {
-        width: min(100%, 340px);
-        text-align: center;
-      }
-      h1 {
-        margin: 0 0 10px;
-        font-size: 28px;
-        letter-spacing: -0.05em;
-      }
-      p {
-        margin: 0;
-        color: #777;
-        font-size: 15px;
-        line-height: 1.5;
-      }
-    </style>
-  </head>
-  <body>
-    <main>
-      <h1>Connect to continue</h1>
-      <p>
-        Your 60-day offline period has expired. Connect to the internet and
-        sign in again to refresh offline access.
-      </p>
-    </main>
-  </body>
-</html>`,
-    {
-      status: 200,
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-      },
-    },
+function createExpiredOfflineResponse() {
+  return createOfflinePage(
+    "Connect to continue",
+    "Your 60-day offline access period has expired. Connect to the internet and reopen Lyst.",
   );
 }
 
-function offlineUnavailableResponse() {
+function createUnavailableOfflineResponse() {
+  return createOfflinePage(
+    "Lyst is not available offline yet",
+    "Open Lyst while connected to the internet first, then try again.",
+  );
+}
+
+function createOfflinePage(title, message) {
   return new Response(
     `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8">
+
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     >
+
     <meta name="theme-color" content="#ffffff">
+
     <title>Lyst</title>
+
     <style>
-      * { box-sizing: border-box; }
+      * {
+        box-sizing: border-box;
+      }
+
       body {
         min-height: 100vh;
+        min-height: 100dvh;
         margin: 0;
         display: grid;
         place-items: center;
         padding: 24px;
-        color: #111;
-        background: #fff;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #111111;
+        background: #ffffff;
+        font-family:
+          "Avenir Next",
+          Avenir,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
       }
+
       main {
         width: min(100%, 340px);
         text-align: center;
       }
+
       h1 {
-        margin: 0 0 10px;
-        font-size: 28px;
+        margin: 0 0 9px;
+        font-size: 27px;
+        line-height: 1.05;
         letter-spacing: -0.05em;
       }
+
       p {
         margin: 0;
-        color: #777;
+        color: #777777;
         font-size: 15px;
         line-height: 1.5;
       }
     </style>
   </head>
+
   <body>
     <main>
-      <h1>Lyst is not cached yet</h1>
-      <p>
-        Open Lyst once while connected to the internet. It will then be
-        available offline.
-      </p>
+      <h1>${title}</h1>
+      <p>${message}</p>
     </main>
   </body>
 </html>`,
@@ -296,6 +282,7 @@ function offlineUnavailableResponse() {
       status: 200,
       headers: {
         "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
       },
     },
   );

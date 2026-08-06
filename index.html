@@ -14,22 +14,59 @@
     />
 
     <meta name="theme-color" content="#ffffff" />
+    <meta name="background-color" content="#ffffff" />
     <meta name="color-scheme" content="light" />
 
-    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="application-name" content="Lyst" />
 
+    <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta
       name="apple-mobile-web-app-status-bar-style"
       content="default"
     />
-
     <meta name="apple-mobile-web-app-title" content="Lyst" />
+
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- iPhone / iPad Home Screen Icon -->
+    <link
+      rel="apple-touch-icon"
+      sizes="180x180"
+      href="/icons/iosLOGO.png?v=2"
+    />
+
+    <link
+      rel="apple-touch-icon-precomposed"
+      sizes="180x180"
+      href="/icons/iosLOGO.png?v=2"
+    />
+
+    <!-- Browser icons -->
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="192x192"
+      href="/icons/icon-192.png"
+    />
+
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="512x512"
+      href="/icons/icon-512.png"
+    />
 
     <title>Lyst</title>
   </head>
 
   <body>
     <div id="root"></div>
+
+    <noscript>
+      Lyst requires JavaScript to run.
+    </noscript>
+
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
