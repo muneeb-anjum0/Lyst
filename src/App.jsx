@@ -1,45 +1,34 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  AnimatePresence,
-  LayoutGroup,
-  motion,
-  useReducedMotion,
-} from "framer-motion";
-import {
-  ArrowLeft,
-  Check,
-  ChevronRight,
-  CirclePlus,
-  ListTodo,
-  LogOut,
-  MoreHorizontal,
-  Plus,
-  ShoppingBag,
-  Sparkles,
-  Trash2,
-  UserRound,
-  X,
-} from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 
 import { initializeApp } from "firebase/app";
+
 import {
   GoogleAuthProvider,
+  browserLocalPersistence,
   createUserWithEmailAndPassword,
   getAuth,
   onAuthStateChanged,
   sendPasswordResetEmail,
+  setPersistence,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
 } from "firebase/auth";
+
 import {
+  CACHE_SIZE_UNLIMITED,
   addDoc,
   collection,
   deleteDoc,
   doc,
+  getDocs,
   getFirestore,
+  initializeFirestore,
   onSnapshot,
   orderBy,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   query,
   serverTimestamp,
   updateDoc,
@@ -66,26 +55,92 @@ let db = null;
 
 if (firebaseReady) {
   const firebaseApp = initializeApp(firebaseConfig);
+
   auth = getAuth(firebaseApp);
-  db = getFirestore(firebaseApp);
+
+  try {
+    db = initializeFirestore(firebaseApp, {
+      localCache: persistentLocalCache({
+        cacheSizeBytes: CACHE_SIZE_UNLIMITED,
+        tabManager: persistentMultipleTabManager(),
+      }),
+    });
+  } catch (error) {
+    console.warn(
+      "Persistent Firestore cache could not be initialized. Using normal Firestore.",
+      error,
+    );
+
+    db = getFirestore(firebaseApp);
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Offline access                                                             */
+/* -------------------------------------------------------------------------- */
+
+const OFFLINE_ACCESS_KEY = "lyst_offline_access_refreshed_at";
+const OFFLINE_ACCESS_DURATION = 60 * 24 * 60 * 60 * 1000;
+
+function getOfflineRefreshTime(user) {
+  const storedValue = Number(localStorage.getItem(OFFLINE_ACCESS_KEY));
+
+  if (Number.isFinite(storedValue) && storedValue > 0) {
+    return storedValue;
+  }
+
+  const lastSignInTime = user?.metadata?.lastSignInTime;
+
+  if (!lastSignInTime) return null;
+
+  const timestamp = new Date(lastSignInTime).getTime();
+
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function offlineAccessExpired(user) {
+  const refreshTime = getOfflineRefreshTime(user);
+
+  if (!refreshTime) return false;
+
+  return Date.now() - refreshTime > OFFLINE_ACCESS_DURATION;
+}
+
+async function sendServiceWorkerMessage(message) {
+  if (!("serviceWorker" in navigator)) return;
+
+  try {
+    const registration = await navigator.serviceWorker.ready;
+
+    registration.active?.postMessage(message);
+  } catch (error) {
+    console.warn("Could not contact the service worker:", error);
+  }
+}
+
+async function refreshOfflineAccess() {
+  localStorage.setItem(OFFLINE_ACCESS_KEY, String(Date.now()));
+
+  await sendServiceWorkerMessage({
+    type: "REFRESH_OFFLINE_CACHE",
+  });
+}
+
+async function clearOfflineAccess() {
+  localStorage.removeItem(OFFLINE_ACCESS_KEY);
+
+  await sendServiceWorkerMessage({
+    type: "CLEAR_OFFLINE_CACHE",
+  });
 }
 
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
 
-const listColors = [
-  "#007AFF",
-  "#5856D6",
-  "#AF52DE",
-  "#FF2D55",
-  "#FF9500",
-  "#34C759",
-  "#00A7B5",
-];
-
 function getInitials(user) {
   const source = user?.displayName || user?.email || "L";
+
   return source
     .split(/[\s@]+/)
     .slice(0, 2)
@@ -93,10 +148,18 @@ function getInitials(user) {
     .join("");
 }
 
-function formatCount(count) {
-  if (count === 0) return "No remaining items";
-  if (count === 1) return "1 remaining item";
-  return `${count} remaining items`;
+function getAuthError(error) {
+  const messages = {
+    "auth/email-already-in-use": "That email already has an account.",
+    "auth/invalid-credential": "Email or password is incorrect.",
+    "auth/invalid-email": "Enter a valid email address.",
+    "auth/too-many-requests": "Too many attempts. Try again later.",
+    "auth/popup-blocked": "Your browser blocked the sign-in window.",
+    "auth/network-request-failed": "Check your internet connection.",
+    "auth/popup-closed-by-user": "",
+  };
+
+  return messages[error?.code] || "Something went wrong.";
 }
 
 /* -------------------------------------------------------------------------- */
@@ -108,14 +171,47 @@ export default function App() {
 
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(firebaseReady);
+  const [offlineExpired, setOfflineExpired] = useState(false);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   const [lists, setLists] = useState([]);
   const [listsLoading, setListsLoading] = useState(false);
   const [selectedList, setSelectedList] = useState(null);
 
-  const [showNewList, setShowNewList] = useState(false);
-  const [showAccount, setShowAccount] = useState(false);
+  const [newListOpen, setNewListOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+
   const [toast, setToast] = useState("");
+  const toastTimer = useRef(null);
+
+  function showToast(message) {
+    if (!message) return;
+
+    setToast(message);
+    window.clearTimeout(toastTimer.current);
+
+    toastTimer.current = window.setTimeout(() => {
+      setToast("");
+    }, 2300);
+  }
+
+  useEffect(() => {
+    function handleOnline() {
+      setIsOnline(true);
+    }
+
+    function handleOffline() {
+      setIsOnline(false);
+    }
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
   useEffect(() => {
     if (!firebaseReady) {
@@ -123,19 +219,72 @@ export default function App() {
       return undefined;
     }
 
-    return onAuthStateChanged(auth, (nextUser) => {
-      setUser(nextUser);
-      setAuthLoading(false);
+    setPersistence(auth, browserLocalPersistence).catch(console.error);
 
+    return onAuthStateChanged(auth, async (nextUser) => {
       if (!nextUser) {
+        setUser(null);
         setLists([]);
         setSelectedList(null);
+        setOfflineExpired(false);
+        setAuthLoading(false);
+        return;
       }
+
+      if (navigator.onLine) {
+        try {
+          await nextUser.getIdToken(true);
+          await refreshOfflineAccess();
+
+          setOfflineExpired(false);
+          setUser(nextUser);
+        } catch (error) {
+          console.warn("Online session refresh failed:", error);
+
+          const expired = offlineAccessExpired(nextUser);
+
+          setOfflineExpired(expired);
+          setUser(expired ? null : nextUser);
+        }
+      } else {
+        const expired = offlineAccessExpired(nextUser);
+
+        setOfflineExpired(expired);
+        setUser(expired ? null : nextUser);
+      }
+
+      setAuthLoading(false);
     });
   }, []);
 
   useEffect(() => {
-    if (!user || !db) return undefined;
+    if (!isOnline || !auth?.currentUser) return undefined;
+
+    let cancelled = false;
+
+    async function refreshOnlineSession() {
+      try {
+        await auth.currentUser.getIdToken(true);
+        await refreshOfflineAccess();
+
+        if (!cancelled) {
+          setOfflineExpired(false);
+          setUser(auth.currentUser);
+        }
+      } catch (error) {
+        console.warn("Could not refresh the online session:", error);
+      }
+    }
+
+    refreshOnlineSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOnline]);
+
+  useEffect(() => {
+    if (!user || !db || offlineExpired) return undefined;
 
     setListsLoading(true);
 
@@ -146,6 +295,9 @@ export default function App() {
 
     return onSnapshot(
       listsQuery,
+      {
+        includeMetadataChanges: true,
+      },
       (snapshot) => {
         const nextLists = snapshot.docs.map((listDocument) => ({
           id: listDocument.id,
@@ -155,60 +307,58 @@ export default function App() {
         setLists(nextLists);
         setListsLoading(false);
 
-        setSelectedList((current) => {
-          if (!current) return null;
+        setSelectedList((currentList) => {
+          if (!currentList) return null;
 
-          const refreshed = nextLists.find((list) => list.id === current.id);
-          return refreshed || null;
+          return (
+            nextLists.find((list) => list.id === currentList.id) || null
+          );
         });
       },
       (error) => {
         console.error(error);
         setListsLoading(false);
-        showToast("Could not load your lists");
+        showToast(
+          navigator.onLine
+            ? "Could not load your lists."
+            : "No cached lists are available yet.",
+        );
       },
     );
-  }, [user]);
+  }, [user, offlineExpired]);
 
-  function showToast(message) {
-    setToast(message);
-    window.clearTimeout(showToast.timeout);
+  async function createList(title) {
+    const cleanTitle = title.trim();
 
-    showToast.timeout = window.setTimeout(() => {
-      setToast("");
-    }, 2600);
-  }
-
-  async function createList(title, color) {
-    const cleanedTitle = title.trim();
-
-    if (!cleanedTitle || !user || !db) return;
+    if (!cleanTitle || !user || !db) return;
 
     try {
       const reference = await addDoc(
         collection(db, "users", user.uid, "lists"),
         {
-          title: cleanedTitle,
-          color,
+          title: cleanTitle,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         },
       );
 
-      setShowNewList(false);
+      setNewListOpen(false);
 
       setSelectedList({
         id: reference.id,
-        title: cleanedTitle,
-        color,
+        title: cleanTitle,
       });
+
+      if (!navigator.onLine) {
+        showToast("Saved offline. It will sync when you reconnect.");
+      }
     } catch (error) {
       console.error(error);
-      showToast("Could not create the list");
+      showToast("Could not create the list.");
     }
   }
 
-  async function removeList(list) {
+  async function deleteList(list) {
     if (!user || !db) return;
 
     const confirmed = window.confirm(
@@ -218,34 +368,44 @@ export default function App() {
     if (!confirmed) return;
 
     try {
-      const itemsReference = collection(
-        db,
-        "users",
-        user.uid,
-        "lists",
-        list.id,
-        "items",
+      const itemsSnapshot = await getDocs(
+        collection(
+          db,
+          "users",
+          user.uid,
+          "lists",
+          list.id,
+          "items",
+        ),
       );
 
-      const unsubscribe = onSnapshot(itemsReference, async (snapshot) => {
-        unsubscribe();
+      const batch = writeBatch(db);
 
-        const batch = writeBatch(db);
-
-        snapshot.docs.forEach((itemDocument) => {
-          batch.delete(itemDocument.ref);
-        });
-
-        batch.delete(doc(db, "users", user.uid, "lists", list.id));
-        await batch.commit();
-
-        setSelectedList(null);
-        showToast("List deleted");
+      itemsSnapshot.docs.forEach((itemDocument) => {
+        batch.delete(itemDocument.ref);
       });
+
+      batch.delete(doc(db, "users", user.uid, "lists", list.id));
+
+      await batch.commit();
+
+      setSelectedList(null);
+      showToast(
+        navigator.onLine
+          ? "List deleted."
+          : "Deleted offline. It will sync when you reconnect.",
+      );
     } catch (error) {
       console.error(error);
-      showToast("Could not delete the list");
+      showToast("Could not delete the list.");
     }
+  }
+
+  async function handleSignOut() {
+    await clearOfflineAccess();
+    await signOut(auth);
+
+    setAccountOpen(false);
   }
 
   if (authLoading) {
@@ -266,11 +426,51 @@ export default function App() {
     );
   }
 
+  if (offlineExpired) {
+    return (
+      <>
+        <GlobalStyles />
+
+        <OfflineExpiredScreen
+          isOnline={isOnline}
+          onRetry={async () => {
+            if (!navigator.onLine) return;
+
+            try {
+              if (auth.currentUser) {
+                await auth.currentUser.getIdToken(true);
+                await refreshOfflineAccess();
+
+                setOfflineExpired(false);
+                setUser(auth.currentUser);
+              } else {
+                setOfflineExpired(false);
+              }
+            } catch (error) {
+              console.error(error);
+              showToast("Sign in again to refresh offline access.");
+            }
+          }}
+          onSignOut={async () => {
+            await clearOfflineAccess();
+            await signOut(auth);
+
+            setOfflineExpired(false);
+          }}
+        />
+
+        <Toast message={toast} />
+      </>
+    );
+  }
+
   if (!user) {
     return (
       <>
         <GlobalStyles />
+
         <AuthScreen showToast={showToast} />
+
         <Toast message={toast} />
       </>
     );
@@ -280,53 +480,59 @@ export default function App() {
     <>
       <GlobalStyles />
 
-      <div className="app-shell">
-        <div className="ambient ambient-one" />
-        <div className="ambient ambient-two" />
+      <div className="app">
+        <AnimatePresence>
+          {!isOnline && (
+            <motion.div
+              className="offline-indicator"
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+            >
+              Offline
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        <LayoutGroup>
-          <AnimatePresence mode="wait">
-            {selectedList ? (
-              <ListScreen
-                key="list-screen"
-                user={user}
-                list={selectedList}
-                reduceMotion={reduceMotion}
-                onBack={() => setSelectedList(null)}
-                onDelete={() => removeList(selectedList)}
-                showToast={showToast}
-              />
-            ) : (
-              <HomeScreen
-                key="home-screen"
-                user={user}
-                lists={lists}
-                loading={listsLoading}
-                reduceMotion={reduceMotion}
-                onOpenList={setSelectedList}
-                onNewList={() => setShowNewList(true)}
-                onAccount={() => setShowAccount(true)}
-              />
-            )}
-          </AnimatePresence>
-        </LayoutGroup>
+        <AnimatePresence mode="wait">
+          {selectedList ? (
+            <ListScreen
+              key="list-screen"
+              list={selectedList}
+              user={user}
+              reduceMotion={reduceMotion}
+              onBack={() => setSelectedList(null)}
+              onDelete={() => deleteList(selectedList)}
+              showToast={showToast}
+            />
+          ) : (
+            <HomeScreen
+              key="home-screen"
+              lists={lists}
+              loading={listsLoading}
+              user={user}
+              reduceMotion={reduceMotion}
+              onOpenList={setSelectedList}
+              onCreate={() => setNewListOpen(true)}
+              onAccount={() => setAccountOpen(true)}
+            />
+          )}
+        </AnimatePresence>
 
         <AnimatePresence>
-          {showNewList && (
+          {newListOpen && (
             <NewListSheet
-              onClose={() => setShowNewList(false)}
+              onClose={() => setNewListOpen(false)}
               onCreate={createList}
             />
           )}
 
-          {showAccount && (
+          {accountOpen && (
             <AccountSheet
               user={user}
-              onClose={() => setShowAccount(false)}
-              onSignOut={async () => {
-                await signOut(auth);
-                setShowAccount(false);
-              }}
+              isOnline={isOnline}
+              onClose={() => setAccountOpen(false)}
+              onSignOut={handleSignOut}
             />
           )}
         </AnimatePresence>
@@ -347,132 +553,184 @@ function AuthScreen({ showToast }) {
   const [password, setPassword] = useState("");
   const [working, setWorking] = useState(false);
 
+  async function preparePersistence() {
+    await setPersistence(auth, browserLocalPersistence);
+  }
+
+  async function finishOnlineLogin() {
+    await refreshOfflineAccess();
+  }
+
   async function handleGoogle() {
+    if (!navigator.onLine) {
+      showToast("Connect to the internet to sign in.");
+      return;
+    }
+
     try {
       setWorking(true);
+
+      await preparePersistence();
+
       const provider = new GoogleAuthProvider();
+
       await signInWithPopup(auth, provider);
+      await finishOnlineLogin();
     } catch (error) {
       console.error(error);
-
-      if (error.code !== "auth/popup-closed-by-user") {
-        showToast("Google sign-in failed");
-      }
+      showToast(getAuthError(error));
     } finally {
       setWorking(false);
     }
   }
 
-  async function handleEmail(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
 
-    if (!email.trim() || password.length < 6) {
-      showToast("Enter a valid email and a 6-character password");
+    if (!navigator.onLine) {
+      showToast("Connect to the internet to sign in.");
+      return;
+    }
+
+    const cleanEmail = email.trim();
+
+    if (!cleanEmail || password.length < 6) {
+      showToast("Use a valid email and a 6-character password.");
       return;
     }
 
     try {
       setWorking(true);
 
+      await preparePersistence();
+
       if (mode === "signup") {
-        await createUserWithEmailAndPassword(auth, email.trim(), password);
+        await createUserWithEmailAndPassword(
+          auth,
+          cleanEmail,
+          password,
+        );
       } else {
-        await signInWithEmailAndPassword(auth, email.trim(), password);
+        await signInWithEmailAndPassword(
+          auth,
+          cleanEmail,
+          password,
+        );
       }
+
+      await finishOnlineLogin();
     } catch (error) {
       console.error(error);
-
-      const messages = {
-        "auth/email-already-in-use": "An account already uses that email",
-        "auth/invalid-credential": "Email or password is incorrect",
-        "auth/invalid-email": "Enter a valid email address",
-        "auth/too-many-requests": "Too many attempts. Try again later",
-      };
-
-      showToast(messages[error.code] || "Authentication failed");
+      showToast(getAuthError(error));
     } finally {
       setWorking(false);
     }
   }
 
-  async function resetPassword() {
-    if (!email.trim()) {
-      showToast("Enter your email first");
+  async function handlePasswordReset() {
+    if (!navigator.onLine) {
+      showToast("Connect to the internet first.");
+      return;
+    }
+
+    const cleanEmail = email.trim();
+
+    if (!cleanEmail) {
+      showToast("Enter your email first.");
       return;
     }
 
     try {
-      await sendPasswordResetEmail(auth, email.trim());
-      showToast("Password reset email sent");
+      await sendPasswordResetEmail(auth, cleanEmail);
+      showToast("Password reset email sent.");
     } catch (error) {
       console.error(error);
-      showToast("Could not send reset email");
+      showToast(getAuthError(error));
     }
   }
 
   return (
     <main className="auth-page">
       <motion.section
-        className="auth-card"
-        initial={{ opacity: 0, y: 20, scale: 0.985 }}
+        className="auth-panel"
+        initial={{ opacity: 0, y: 14, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ type: "spring", stiffness: 220, damping: 24 }}
+        transition={{
+          type: "spring",
+          stiffness: 300,
+          damping: 28,
+        }}
       >
-        <div className="brand-mark">
-          <Check size={28} strokeWidth={3} />
-        </div>
+        <motion.div
+          className="auth-name"
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.08 }}
+        >
+          Lyst
+        </motion.div>
 
-        <div className="auth-heading">
-          <span className="eyebrow">Welcome to</span>
-          <h1>Lyst</h1>
-          <p>Everything you need to remember, beautifully organized.</p>
-        </div>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={mode}
+            className="auth-heading"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.18 }}
+          >
+            <h1>{mode === "signin" ? "Sign in" : "Create account"}</h1>
 
-        <button
+            <p>
+              {mode === "signin"
+                ? "Continue to your lists."
+                : "Keep everything you need to remember."}
+            </p>
+          </motion.div>
+        </AnimatePresence>
+
+        <motion.button
           className="google-button"
           type="button"
           disabled={working}
+          whileTap={{ scale: 0.975 }}
           onClick={handleGoogle}
         >
-          <GoogleIcon />
+          <GoogleMark />
           Continue with Google
-        </button>
+        </motion.button>
 
         <div className="divider">
           <span>or</span>
         </div>
 
-        <form className="auth-form" onSubmit={handleEmail}>
-          <label>
-            <span>Email</span>
-            <input
-              type="email"
-              value={email}
-              autoComplete="email"
-              placeholder="you@example.com"
-              onChange={(event) => setEmail(event.target.value)}
-            />
-          </label>
+        <form className="auth-form" onSubmit={handleSubmit}>
+          <input
+            type="email"
+            value={email}
+            autoComplete="email"
+            placeholder="Email"
+            aria-label="Email"
+            onChange={(event) => setEmail(event.target.value)}
+          />
 
-          <label>
-            <span>Password</span>
-            <input
-              type="password"
-              value={password}
-              minLength={6}
-              autoComplete={
-                mode === "signup" ? "new-password" : "current-password"
-              }
-              placeholder="At least 6 characters"
-              onChange={(event) => setPassword(event.target.value)}
-            />
-          </label>
+          <input
+            type="password"
+            value={password}
+            minLength={6}
+            autoComplete={
+              mode === "signup" ? "new-password" : "current-password"
+            }
+            placeholder="Password"
+            aria-label="Password"
+            onChange={(event) => setPassword(event.target.value)}
+          />
 
           {mode === "signin" && (
             <button
               className="forgot-button"
               type="button"
-              onClick={resetPassword}
+              onClick={handlePasswordReset}
             >
               Forgot password?
             </button>
@@ -482,10 +740,10 @@ function AuthScreen({ showToast }) {
             className="primary-button"
             type="submit"
             disabled={working}
-            whileTap={{ scale: 0.98 }}
+            whileTap={{ scale: 0.975 }}
           >
             {working
-              ? "Please wait..."
+              ? "Please wait"
               : mode === "signup"
                 ? "Create account"
                 : "Sign in"}
@@ -493,15 +751,17 @@ function AuthScreen({ showToast }) {
         </form>
 
         <button
-          className="mode-button"
+          className="switch-button"
           type="button"
-          onClick={() =>
-            setMode((current) => (current === "signin" ? "signup" : "signin"))
-          }
+          onClick={() => {
+            setMode((currentMode) =>
+              currentMode === "signin" ? "signup" : "signin",
+            );
+          }}
         >
           {mode === "signin"
-            ? "New to Lyst? Create an account"
-            : "Already have an account? Sign in"}
+            ? "Create an account"
+            : "Already have an account?"}
         </button>
       </motion.section>
     </main>
@@ -513,71 +773,74 @@ function AuthScreen({ showToast }) {
 /* -------------------------------------------------------------------------- */
 
 function HomeScreen({
-  user,
   lists,
   loading,
+  user,
   reduceMotion,
   onOpenList,
-  onNewList,
+  onCreate,
   onAccount,
 }) {
   return (
     <motion.main
-      className="screen home-screen"
-      initial={{ opacity: 0, x: reduceMotion ? 0 : -18 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: reduceMotion ? 0 : -18 }}
-      transition={{ duration: reduceMotion ? 0 : 0.28 }}
+      className="screen"
+      initial={{
+        opacity: 0,
+        x: reduceMotion ? 0 : -10,
+      }}
+      animate={{
+        opacity: 1,
+        x: 0,
+      }}
+      exit={{
+        opacity: 0,
+        x: reduceMotion ? 0 : -10,
+      }}
+      transition={{
+        duration: reduceMotion ? 0 : 0.22,
+      }}
     >
-      <header className="top-bar">
+      <header className="home-header">
         <div>
-          <span className="eyebrow">Your space</span>
-          <h1>My Lists</h1>
-        </div>
-
-        <button
-          className="avatar-button"
-          type="button"
-          aria-label="Open account"
-          onClick={onAccount}
-        >
-          {user.photoURL ? (
-            <img src={user.photoURL} alt="" referrerPolicy="no-referrer" />
-          ) : (
-            getInitials(user)
-          )}
-        </button>
-      </header>
-
-      <section className="hero-card">
-        <div className="hero-icon">
-          <Sparkles size={23} />
-        </div>
-
-        <div>
-          <span>Stay effortlessly organized</span>
-          <p>Add what matters. Lyst keeps the rest out of your way.</p>
-        </div>
-      </section>
-
-      <div className="section-heading">
-        <div>
-          <h2>Lists</h2>
-          <span>{lists.length}</span>
+          <span className="app-label">Lyst</span>
+          <h1>Lists</h1>
         </div>
 
         <motion.button
-          className="add-list-button"
+          className="avatar-button"
           type="button"
-          onClick={onNewList}
-          whileTap={{ scale: 0.94 }}
+          aria-label="Open account"
+          whileTap={{ scale: 0.9 }}
+          onClick={onAccount}
         >
-          <Plus size={19} strokeWidth={2.4} />
-          New list
+          {user.photoURL ? (
+            <img
+              src={user.photoURL}
+              alt=""
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            getInitials(user)
+          )}
+        </motion.button>
+      </header>
+
+      <div className="list-toolbar">
+        <span>
+          {lists.length} {lists.length === 1 ? "list" : "lists"}
+        </span>
+
+        <motion.button
+          className="create-button"
+          type="button"
+          whileTap={{ scale: 0.94 }}
+          onClick={onCreate}
+        >
+          New
         </motion.button>
       </div>
 
-      <section className="lists-grid">
+      <section className="lists">
         {loading ? (
           <>
             <ListSkeleton />
@@ -590,47 +853,39 @@ function HomeScreen({
               <motion.button
                 layout
                 key={list.id}
-                className="list-card"
+                className="list-row"
                 type="button"
-                initial={{ opacity: 0, y: 14 }}
+                initial={{ opacity: 0, y: 7 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.96 }}
+                exit={{ opacity: 0, scale: 0.985 }}
                 transition={{
-                  delay: Math.min(index * 0.035, 0.18),
+                  delay: Math.min(index * 0.025, 0.12),
                   type: "spring",
-                  stiffness: 260,
-                  damping: 25,
+                  stiffness: 350,
+                  damping: 30,
                 }}
-                whileHover={{ y: -2 }}
                 whileTap={{ scale: 0.985 }}
                 onClick={() => onOpenList(list)}
               >
-                <span
-                  className="list-icon"
-                  style={{
-                    "--list-color": list.color || listColors[0],
-                  }}
-                >
-                  <ListTodo size={21} />
-                </span>
-
-                <span className="list-card-copy">
-                  <strong>{list.title}</strong>
-                  <small>Open list</small>
-                </span>
-
-                <ChevronRight className="list-chevron" size={20} />
+                <span className="list-title-text">{list.title}</span>
+                <span className="row-arrow">›</span>
               </motion.button>
             ))}
           </AnimatePresence>
         ) : (
-          <EmptyLists onCreate={onNewList} />
+          <EmptyLists onCreate={onCreate} />
         )}
       </section>
 
-      <button className="mobile-fab" type="button" onClick={onNewList}>
-        <Plus size={25} />
-      </button>
+      <motion.button
+        className="floating-button"
+        type="button"
+        aria-label="Create list"
+        whileTap={{ scale: 0.88 }}
+        onClick={onCreate}
+      >
+        +
+      </motion.button>
     </motion.main>
   );
 }
@@ -639,34 +894,31 @@ function EmptyLists({ onCreate }) {
   return (
     <motion.div
       className="empty-state"
-      initial={{ opacity: 0, y: 12 }}
+      initial={{ opacity: 0, y: 7 }}
       animate={{ opacity: 1, y: 0 }}
     >
-      <div className="empty-illustration">
-        <div className="empty-card empty-card-back" />
-        <div className="empty-card empty-card-front">
-          <ShoppingBag size={32} />
-        </div>
-      </div>
+      <h2>No lists yet</h2>
+      <p>Create one and start adding items.</p>
 
-      <h3>Your first list starts here</h3>
-      <p>Create a shopping list, a personal checklist, or anything else.</p>
-
-      <button className="primary-button compact" type="button" onClick={onCreate}>
-        <CirclePlus size={19} />
-        Create a list
-      </button>
+      <motion.button
+        className="primary-button small-button"
+        type="button"
+        whileTap={{ scale: 0.97 }}
+        onClick={onCreate}
+      >
+        Create list
+      </motion.button>
     </motion.div>
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/* Individual list                                                            */
+/* List screen                                                                */
 /* -------------------------------------------------------------------------- */
 
 function ListScreen({
-  user,
   list,
+  user,
   reduceMotion,
   onBack,
   onDelete,
@@ -676,7 +928,7 @@ function ListScreen({
   const [loading, setLoading] = useState(true);
   const [newItem, setNewItem] = useState("");
   const [adding, setAdding] = useState(false);
-  const [showMenu, setShowMenu] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const inputRef = useRef(null);
 
@@ -695,6 +947,9 @@ function ListScreen({
 
     return onSnapshot(
       itemsQuery,
+      {
+        includeMetadataChanges: true,
+      },
       (snapshot) => {
         setItems(
           snapshot.docs.map((itemDocument) => ({
@@ -708,17 +963,22 @@ function ListScreen({
       (error) => {
         console.error(error);
         setLoading(false);
-        showToast("Could not load the items");
+
+        showToast(
+          navigator.onLine
+            ? "Could not load your items."
+            : "No cached items are available yet.",
+        );
       },
     );
-  }, [list.id, showToast, user.uid]);
+  }, [list.id, user.uid]);
 
-  const remaining = useMemo(
+  const remainingItems = useMemo(
     () => items.filter((item) => !item.completed).length,
     [items],
   );
 
-  const orderedItems = useMemo(
+  const sortedItems = useMemo(
     () => [
       ...items.filter((item) => !item.completed),
       ...items.filter((item) => item.completed),
@@ -729,9 +989,9 @@ function ListScreen({
   async function addItem(event) {
     event.preventDefault();
 
-    const text = newItem.trim();
+    const cleanText = newItem.trim();
 
-    if (!text || adding) return;
+    if (!cleanText || adding) return;
 
     try {
       setAdding(true);
@@ -747,22 +1007,29 @@ function ListScreen({
           "items",
         ),
         {
-          text,
+          text: cleanText,
           completed: false,
           createdAt: serverTimestamp(),
           completedAt: null,
         },
       );
 
-      await updateDoc(doc(db, "users", user.uid, "lists", list.id), {
-        updatedAt: serverTimestamp(),
-      });
+      await updateDoc(
+        doc(db, "users", user.uid, "lists", list.id),
+        {
+          updatedAt: serverTimestamp(),
+        },
+      );
 
       inputRef.current?.focus();
+
+      if (!navigator.onLine) {
+        showToast("Saved offline. It will sync when you reconnect.");
+      }
     } catch (error) {
       console.error(error);
-      setNewItem(text);
-      showToast("Could not add the item");
+      setNewItem(cleanText);
+      showToast("Could not add the item.");
     } finally {
       setAdding(false);
     }
@@ -785,9 +1052,13 @@ function ListScreen({
           completedAt: !item.completed ? serverTimestamp() : null,
         },
       );
+
+      if (!navigator.onLine) {
+        showToast("Updated offline.");
+      }
     } catch (error) {
       console.error(error);
-      showToast("Could not update the item");
+      showToast("Could not update the item.");
     }
   }
 
@@ -804,9 +1075,13 @@ function ListScreen({
           item.id,
         ),
       );
+
+      if (!navigator.onLine) {
+        showToast("Deleted offline.");
+      }
     } catch (error) {
       console.error(error);
-      showToast("Could not delete the item");
+      showToast("Could not delete the item.");
     }
   }
 
@@ -814,7 +1089,7 @@ function ListScreen({
     const completedItems = items.filter((item) => item.completed);
 
     if (completedItems.length === 0) {
-      showToast("There are no completed items");
+      showToast("There are no completed items.");
       return;
     }
 
@@ -836,59 +1111,80 @@ function ListScreen({
       });
 
       await batch.commit();
-      setShowMenu(false);
-      showToast("Completed items cleared");
+
+      setMenuOpen(false);
+
+      showToast(
+        navigator.onLine
+          ? "Completed items cleared."
+          : "Cleared offline. It will sync when you reconnect.",
+      );
     } catch (error) {
       console.error(error);
-      showToast("Could not clear completed items");
+      showToast("Could not clear completed items.");
     }
   }
 
   return (
     <motion.main
       className="screen list-screen"
-      initial={{ opacity: 0, x: reduceMotion ? 0 : 24 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: reduceMotion ? 0 : 24 }}
-      transition={{ duration: reduceMotion ? 0 : 0.28 }}
+      initial={{
+        opacity: 0,
+        x: reduceMotion ? 0 : 12,
+      }}
+      animate={{
+        opacity: 1,
+        x: 0,
+      }}
+      exit={{
+        opacity: 0,
+        x: reduceMotion ? 0 : 12,
+      }}
+      transition={{
+        duration: reduceMotion ? 0 : 0.22,
+      }}
     >
-      <header className="list-top-bar">
+      <header className="list-header">
         <motion.button
-          className="icon-button"
+          className="text-action"
           type="button"
-          aria-label="Go back"
-          whileTap={{ scale: 0.9 }}
+          whileTap={{ scale: 0.94 }}
           onClick={onBack}
         >
-          <ArrowLeft size={22} />
+          Back
         </motion.button>
 
-        <div className="menu-wrap">
+        <div className="menu-container">
           <motion.button
-            className="icon-button"
+            className="menu-button"
             type="button"
-            aria-label="List menu"
+            aria-label="Open menu"
             whileTap={{ scale: 0.9 }}
-            onClick={() => setShowMenu((current) => !current)}
+            onClick={() => {
+              setMenuOpen((currentValue) => !currentValue);
+            }}
           >
-            <MoreHorizontal size={23} />
+            •••
           </motion.button>
 
           <AnimatePresence>
-            {showMenu && (
+            {menuOpen && (
               <motion.div
                 className="context-menu"
-                initial={{ opacity: 0, y: -7, scale: 0.96 }}
+                initial={{ opacity: 0, y: -5, scale: 0.97 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -7, scale: 0.96 }}
+                exit={{ opacity: 0, y: -5, scale: 0.97 }}
+                transition={{ duration: 0.15 }}
               >
                 <button type="button" onClick={clearCompleted}>
-                  <Check size={17} />
                   Clear completed
                 </button>
 
-                <button className="danger-row" type="button" onClick={onDelete}>
-                  <Trash2 size={17} />
+                <button
+                  className="danger-action"
+                  type="button"
+                  onClick={onDelete}
+                >
                   Delete list
                 </button>
               </motion.div>
@@ -898,41 +1194,37 @@ function ListScreen({
       </header>
 
       <section className="list-heading">
-        <span
-          className="large-list-icon"
-          style={{ "--list-color": list.color || listColors[0] }}
-        >
-          <ListTodo size={27} />
-        </span>
+        <h1>{list.title}</h1>
 
-        <div>
-          <h1>{list.title}</h1>
-          <p>{formatCount(remaining)}</p>
-        </div>
+        <p>
+          {remainingItems} {remainingItems === 1 ? "item" : "items"} left
+        </p>
       </section>
 
-      <section className="items-panel">
+      <section className="items">
         {loading ? (
-          <div className="item-skeletons">
+          <>
             <ItemSkeleton />
             <ItemSkeleton />
             <ItemSkeleton />
-          </div>
-        ) : orderedItems.length > 0 ? (
+          </>
+        ) : sortedItems.length > 0 ? (
           <AnimatePresence initial={false}>
-            {orderedItems.map((item) => (
+            {sortedItems.map((item) => (
               <motion.article
                 layout
                 key={item.id}
-                className={`item-row ${item.completed ? "completed" : ""}`}
-                initial={{ opacity: 0, y: 10, scale: 0.985 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, x: 30, scale: 0.96 }}
+                className={`item-row ${
+                  item.completed ? "completed" : ""
+                }`}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, x: 18 }}
                 transition={{
                   layout: {
                     type: "spring",
-                    stiffness: 350,
-                    damping: 30,
+                    stiffness: 420,
+                    damping: 34,
                   },
                 }}
               >
@@ -940,32 +1232,34 @@ function ListScreen({
                   className="check-button"
                   type="button"
                   aria-label={
-                    item.completed ? "Mark as incomplete" : "Mark as complete"
+                    item.completed
+                      ? "Mark item incomplete"
+                      : "Mark item complete"
                   }
                   animate={{
                     backgroundColor: item.completed
-                      ? list.color || listColors[0]
-                      : "rgba(255,255,255,0)",
+                      ? "#111111"
+                      : "#ffffff",
                     borderColor: item.completed
-                      ? list.color || listColors[0]
-                      : "#d5d5dc",
+                      ? "#111111"
+                      : "#cfcfcf",
                   }}
-                  whileTap={{ scale: 0.82 }}
+                  whileTap={{ scale: 0.8 }}
                   onClick={() => toggleItem(item)}
                 >
                   <AnimatePresence>
                     {item.completed && (
                       <motion.span
-                        initial={{ scale: 0, rotate: -40 }}
+                        initial={{ scale: 0, rotate: -35 }}
                         animate={{ scale: 1, rotate: 0 }}
                         exit={{ scale: 0 }}
                         transition={{
                           type: "spring",
-                          stiffness: 500,
-                          damping: 24,
+                          stiffness: 550,
+                          damping: 23,
                         }}
                       >
-                        <Check size={15} strokeWidth={3.4} />
+                        ✓
                       </motion.span>
                     )}
                   </AnimatePresence>
@@ -983,23 +1277,23 @@ function ListScreen({
                   className="delete-item-button"
                   type="button"
                   aria-label={`Delete ${item.text}`}
-                  whileTap={{ scale: 0.86 }}
+                  whileTap={{ scale: 0.82 }}
                   onClick={() => removeItem(item)}
                 >
-                  <X size={18} />
+                  ×
                 </motion.button>
               </motion.article>
             ))}
           </AnimatePresence>
         ) : (
-          <div className="list-empty">
-            <div className="list-empty-icon">
-              <Check size={31} />
-            </div>
-
-            <h3>Nothing here yet</h3>
+          <motion.div
+            className="empty-items"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+          >
+            <h2>Nothing here</h2>
             <p>Add your first item below.</p>
-          </div>
+          </motion.div>
         )}
       </section>
 
@@ -1016,12 +1310,9 @@ function ListScreen({
         <motion.button
           type="submit"
           disabled={!newItem.trim() || adding}
-          whileTap={{ scale: 0.88 }}
-          style={{
-            "--list-color": list.color || listColors[0],
-          }}
+          whileTap={{ scale: 0.84 }}
         >
-          <Plus size={22} strokeWidth={2.6} />
+          +
         </motion.button>
       </form>
     </motion.main>
@@ -1034,7 +1325,6 @@ function ListScreen({
 
 function NewListSheet({ onClose, onCreate }) {
   const [title, setTitle] = useState("");
-  const [color, setColor] = useState(listColors[0]);
 
   return (
     <Sheet onClose={onClose}>
@@ -1042,113 +1332,95 @@ function NewListSheet({ onClose, onCreate }) {
         className="sheet-content"
         onSubmit={(event) => {
           event.preventDefault();
-          onCreate(title, color);
+          onCreate(title);
         }}
       >
         <div className="sheet-handle" />
 
-        <div className="sheet-heading">
-          <div>
-            <span className="eyebrow">Create</span>
-            <h2>New List</h2>
-          </div>
+        <header className="sheet-header">
+          <h2>New list</h2>
 
-          <button
-            className="sheet-close"
-            type="button"
-            aria-label="Close"
-            onClick={onClose}
-          >
-            <X size={19} />
+          <button type="button" onClick={onClose}>
+            Done
           </button>
-        </div>
+        </header>
 
-        <label className="sheet-field">
-          <span>List name</span>
-          <input
-            autoFocus
-            value={title}
-            maxLength={40}
-            placeholder="Groceries"
-            onChange={(event) => setTitle(event.target.value)}
-          />
-        </label>
+        <input
+          className="sheet-input"
+          autoFocus
+          value={title}
+          maxLength={40}
+          placeholder="List name"
+          onChange={(event) => setTitle(event.target.value)}
+        />
 
-        <div className="color-section">
-          <span>Color</span>
-
-          <div className="color-grid">
-            {listColors.map((option) => (
-              <motion.button
-                key={option}
-                className={`color-option ${
-                  color === option ? "selected" : ""
-                }`}
-                type="button"
-                aria-label={`Select ${option}`}
-                style={{ "--option-color": option }}
-                whileTap={{ scale: 0.88 }}
-                onClick={() => setColor(option)}
-              >
-                {color === option && <Check size={18} strokeWidth={3} />}
-              </motion.button>
-            ))}
-          </div>
-        </div>
-
-        <button
+        <motion.button
           className="primary-button"
           type="submit"
           disabled={!title.trim()}
+          whileTap={{ scale: 0.975 }}
         >
           Create list
-        </button>
+        </motion.button>
       </form>
     </Sheet>
   );
 }
 
-function AccountSheet({ user, onClose, onSignOut }) {
+function AccountSheet({
+  user,
+  isOnline,
+  onClose,
+  onSignOut,
+}) {
   return (
     <Sheet onClose={onClose}>
       <div className="sheet-content">
         <div className="sheet-handle" />
 
-        <div className="sheet-heading">
-          <div>
-            <span className="eyebrow">Account</span>
-            <h2>Your Profile</h2>
-          </div>
+        <header className="sheet-header">
+          <h2>Account</h2>
 
-          <button
-            className="sheet-close"
-            type="button"
-            aria-label="Close"
-            onClick={onClose}
-          >
-            <X size={19} />
+          <button type="button" onClick={onClose}>
+            Done
           </button>
-        </div>
+        </header>
 
-        <div className="profile-card">
-          <div className="profile-avatar">
+        <div className="account-row">
+          <div className="account-avatar">
             {user.photoURL ? (
-              <img src={user.photoURL} alt="" referrerPolicy="no-referrer" />
+              <img
+                src={user.photoURL}
+                alt=""
+                referrerPolicy="no-referrer"
+              />
             ) : (
-              <UserRound size={28} />
+              getInitials(user)
             )}
           </div>
 
           <div>
-            <strong>{user.displayName || "Lyst User"}</strong>
+            <strong>{user.displayName || "Lyst user"}</strong>
             <span>{user.email}</span>
           </div>
         </div>
 
-        <button className="sign-out-button" type="button" onClick={onSignOut}>
-          <LogOut size={19} />
+        <div className="offline-access-note">
+          <strong>{isOnline ? "Online" : "Offline"}</strong>
+          <span>
+            Offline access remains available for 60 days after the latest
+            authenticated online session.
+          </span>
+        </div>
+
+        <motion.button
+          className="primary-button"
+          type="button"
+          whileTap={{ scale: 0.975 }}
+          onClick={onSignOut}
+        >
           Sign out
-        </button>
+        </motion.button>
       </div>
     </Sheet>
   );
@@ -1162,7 +1434,9 @@ function Sheet({ children, onClose }) {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
       }}
     >
       <motion.div
@@ -1170,7 +1444,11 @@ function Sheet({ children, onClose }) {
         initial={{ y: "100%" }}
         animate={{ y: 0 }}
         exit={{ y: "100%" }}
-        transition={{ type: "spring", stiffness: 330, damping: 32 }}
+        transition={{
+          type: "spring",
+          stiffness: 380,
+          damping: 35,
+        }}
       >
         {children}
       </motion.div>
@@ -1179,22 +1457,81 @@ function Sheet({ children, onClose }) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Supporting components                                                      */
+/* Supporting UI                                                              */
 /* -------------------------------------------------------------------------- */
+
+function OfflineExpiredScreen({
+  isOnline,
+  onRetry,
+  onSignOut,
+}) {
+  return (
+    <main className="offline-expired-page">
+      <motion.section
+        className="offline-expired-panel"
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        <h1>Connect to continue</h1>
+
+        <p>
+          Your 60-day offline period has expired. Connect to the internet
+          and refresh your authenticated session.
+        </p>
+
+        <motion.button
+          className="primary-button"
+          type="button"
+          disabled={!isOnline}
+          whileTap={{ scale: 0.975 }}
+          onClick={onRetry}
+        >
+          {isOnline ? "Refresh access" : "Waiting for internet"}
+        </motion.button>
+
+        <button
+          className="offline-sign-out"
+          type="button"
+          onClick={onSignOut}
+        >
+          Sign out
+        </button>
+      </motion.section>
+    </main>
+  );
+}
+
+function LoadingScreen({ reduceMotion }) {
+  return (
+    <main className="loading-page">
+      <motion.strong
+        animate={
+          reduceMotion
+            ? {}
+            : {
+                opacity: [0.35, 1, 0.35],
+              }
+        }
+        transition={{
+          duration: 1.25,
+          repeat: Infinity,
+        }}
+      >
+        Lyst
+      </motion.strong>
+    </main>
+  );
+}
 
 function SetupScreen() {
   return (
     <main className="setup-page">
       <section className="setup-card">
-        <div className="brand-mark">
-          <Check size={28} strokeWidth={3} />
-        </div>
-
         <h1>Connect Firebase</h1>
 
         <p>
-          Add the Firebase configuration values to your
-          <code>.env.local</code> file, then restart the development server.
+          Add your Firebase values to <code>.env.local</code>, then restart
+          Vite.
         </p>
 
         <pre>{`VITE_FIREBASE_API_KEY=
@@ -1208,31 +1545,15 @@ VITE_FIREBASE_APP_ID=`}</pre>
   );
 }
 
-function LoadingScreen({ reduceMotion }) {
-  return (
-    <main className="loading-screen">
-      <motion.div
-        className="brand-mark loading-mark"
-        animate={reduceMotion ? {} : { scale: [1, 1.07, 1] }}
-        transition={{ duration: 1.3, repeat: Infinity }}
-      >
-        <Check size={28} strokeWidth={3} />
-      </motion.div>
-
-      <strong>Lyst</strong>
-    </main>
-  );
-}
-
 function Toast({ message }) {
   return (
     <AnimatePresence>
       {message && (
         <motion.div
           className="toast"
-          initial={{ opacity: 0, y: 22, scale: 0.96 }}
+          initial={{ opacity: 0, y: 14, scale: 0.97 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: 12, scale: 0.97 }}
+          exit={{ opacity: 0, y: 8, scale: 0.98 }}
         >
           {message}
         </motion.div>
@@ -1243,13 +1564,8 @@ function Toast({ message }) {
 
 function ListSkeleton() {
   return (
-    <div className="list-card skeleton-card">
-      <span className="skeleton skeleton-square" />
-
-      <span className="list-card-copy">
-        <span className="skeleton skeleton-title" />
-        <span className="skeleton skeleton-caption" />
-      </span>
+    <div className="list-row skeleton-row">
+      <span className="skeleton skeleton-list-title" />
     </div>
   );
 }
@@ -1257,37 +1573,22 @@ function ListSkeleton() {
 function ItemSkeleton() {
   return (
     <div className="item-row">
-      <span className="skeleton skeleton-check" />
+      <span className="skeleton skeleton-circle" />
       <span className="skeleton skeleton-item-text" />
     </div>
   );
 }
 
-function GoogleIcon() {
+function GoogleMark() {
   return (
-    <svg width="19" height="19" viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        fill="#4285F4"
-        d="M21.6 12.23c0-.71-.06-1.4-.18-2.07H12v3.92h5.38a4.6 4.6 0 0 1-2 3.02v2.54h3.24c1.9-1.75 2.98-4.33 2.98-7.41Z"
-      />
-      <path
-        fill="#34A853"
-        d="M12 22c2.7 0 4.97-.9 6.62-2.36l-3.24-2.54c-.9.6-2.05.96-3.38.96-2.6 0-4.8-1.76-5.59-4.12H3.07v2.62A10 10 0 0 0 12 22Z"
-      />
-      <path
-        fill="#FBBC05"
-        d="M6.41 13.94A6 6 0 0 1 6.1 12c0-.67.11-1.33.31-1.94V7.44H3.07A10 10 0 0 0 2 12c0 1.61.39 3.14 1.07 4.56l3.34-2.62Z"
-      />
-      <path
-        fill="#EA4335"
-        d="M12 5.94c1.47 0 2.79.51 3.83 1.5l2.87-2.88A9.63 9.63 0 0 0 12 2a10 10 0 0 0-8.93 5.44l3.34 2.62C7.2 7.7 9.4 5.94 12 5.94Z"
-      />
-    </svg>
+    <span className="google-mark" aria-hidden="true">
+      G
+    </span>
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/* Styling                                                                    */
+/* CSS                                                                        */
 /* -------------------------------------------------------------------------- */
 
 function GlobalStyles() {
@@ -1297,8 +1598,8 @@ function GlobalStyles() {
 const styles = `
   :root {
     font-family:
-      Inter,
-      ui-rounded,
+      "Avenir Next",
+      Avenir,
       "SF Pro Display",
       "SF Pro Text",
       -apple-system,
@@ -1306,8 +1607,8 @@ const styles = `
       "Segoe UI",
       sans-serif;
 
-    color: #111114;
-    background: #f5f5f7;
+    color: #111111;
+    background: #ffffff;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
@@ -1320,7 +1621,9 @@ const styles = `
 
   html {
     min-width: 320px;
-    background: #f5f5f7;
+    min-height: 100%;
+    background: #ffffff;
+    touch-action: manipulation;
   }
 
   body {
@@ -1329,75 +1632,36 @@ const styles = `
     min-height: 100dvh;
     margin: 0;
     overflow-x: hidden;
-    overscroll-behavior-y: none;
+    overscroll-behavior: none;
+    background: #ffffff;
+  }
+
+  body,
+  button,
+  input {
+    font-family: inherit;
   }
 
   button,
   input {
-    font: inherit;
+    -webkit-tap-highlight-color: transparent;
   }
 
   button {
-    -webkit-tap-highlight-color: transparent;
+    color: inherit;
   }
 
   button:focus-visible,
   input:focus-visible {
-    outline: 3px solid rgba(0, 122, 255, 0.25);
+    outline: 2px solid #111111;
     outline-offset: 2px;
   }
 
-  #root {
+  #root,
+  .app {
     min-height: 100vh;
     min-height: 100dvh;
-  }
-
-  .app-shell {
-    position: relative;
-    min-height: 100vh;
-    min-height: 100dvh;
-    overflow: hidden;
-    background:
-      radial-gradient(circle at 10% 0%, rgba(0, 122, 255, 0.08), transparent 31rem),
-      radial-gradient(circle at 100% 20%, rgba(175, 82, 222, 0.07), transparent 27rem),
-      #f5f5f7;
-  }
-
-  .ambient {
-    position: fixed;
-    z-index: 0;
-    width: 30rem;
-    height: 30rem;
-    border-radius: 999px;
-    filter: blur(90px);
-    pointer-events: none;
-    opacity: 0.42;
-  }
-
-  .ambient-one {
-    top: -18rem;
-    left: -12rem;
-    background: rgba(0, 122, 255, 0.18);
-  }
-
-  .ambient-two {
-    right: -18rem;
-    bottom: -19rem;
-    background: rgba(175, 82, 222, 0.14);
-  }
-
-  .screen {
-    position: relative;
-    z-index: 1;
-    width: min(100%, 760px);
-    min-height: 100vh;
-    min-height: 100dvh;
-    margin: 0 auto;
-    padding:
-      max(30px, env(safe-area-inset-top))
-      max(22px, env(safe-area-inset-right))
-      max(110px, calc(env(safe-area-inset-bottom) + 90px))
-      max(22px, env(safe-area-inset-left));
+    background: #ffffff;
   }
 
   h1,
@@ -1407,471 +1671,348 @@ const styles = `
     margin-top: 0;
   }
 
-  .eyebrow {
-    display: block;
-    margin-bottom: 5px;
-    color: #777780;
-    font-size: 0.76rem;
-    font-weight: 750;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+  .screen {
+    position: relative;
+    width: min(100%, 620px);
+    min-height: 100vh;
+    min-height: 100dvh;
+    margin: 0 auto;
+    padding:
+      max(19px, env(safe-area-inset-top))
+      max(17px, env(safe-area-inset-right))
+      max(86px, calc(env(safe-area-inset-bottom) + 68px))
+      max(17px, env(safe-area-inset-left));
   }
 
-  .top-bar,
-  .list-top-bar {
+  .offline-indicator {
+    position: fixed;
+    z-index: 80;
+    top: max(8px, env(safe-area-inset-top));
+    left: 50%;
+    padding: 5px 10px;
+    transform: translateX(-50%);
+    border: 1px solid #dedede;
+    border-radius: 999px;
+    color: #555555;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 5px 18px rgba(0, 0, 0, 0.07);
+    font-size: 0.68rem;
+    font-weight: 700;
+    backdrop-filter: blur(14px);
+  }
+
+  .home-header,
+  .list-header,
+  .list-toolbar,
+  .sheet-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
   }
 
-  .top-bar {
-    margin-bottom: 28px;
+  .home-header {
+    margin-bottom: 23px;
   }
 
-  .top-bar h1 {
+  .app-label {
+    display: block;
+    margin-bottom: 4px;
+    color: #777777;
+    font-size: 0.71rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .home-header h1 {
     margin: 0;
-    font-size: clamp(2.25rem, 8vw, 3.6rem);
+    font-size: 2.15rem;
+    font-weight: 730;
     line-height: 0.98;
     letter-spacing: -0.055em;
   }
 
   .avatar-button {
     display: grid;
-    width: 48px;
-    height: 48px;
+    width: 38px;
+    height: 38px;
     padding: 0;
     place-items: center;
     overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, 0.86);
+    border: 1px solid #dddddd;
     border-radius: 50%;
-    color: #303036;
-    background:
-      linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(241, 241, 245, 0.88));
-    box-shadow:
-      0 10px 30px rgba(42, 42, 50, 0.09),
-      inset 0 1px 0 #fff;
-    font-size: 0.86rem;
-    font-weight: 800;
+    color: #111111;
+    background: #ffffff;
+    font-size: 0.72rem;
+    font-weight: 750;
     cursor: pointer;
   }
 
   .avatar-button img,
-  .profile-avatar img {
+  .account-avatar img {
     width: 100%;
     height: 100%;
     object-fit: cover;
   }
 
-  .hero-card {
-    display: flex;
-    gap: 16px;
-    align-items: center;
-    margin-bottom: 34px;
-    padding: 19px;
-    overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, 0.88);
-    border-radius: 26px;
-    background:
-      linear-gradient(120deg, rgba(255, 255, 255, 0.96), rgba(249, 249, 252, 0.86));
-    box-shadow:
-      0 16px 45px rgba(31, 35, 48, 0.07),
-      inset 0 1px 0 rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(22px);
+  .list-toolbar {
+    margin-bottom: 10px;
   }
 
-  .hero-icon {
-    display: grid;
-    flex: 0 0 auto;
-    width: 50px;
-    height: 50px;
-    place-items: center;
-    border-radius: 17px;
-    color: white;
-    background: linear-gradient(145deg, #16171b, #3b3d45);
-    box-shadow:
-      0 12px 28px rgba(20, 20, 24, 0.19),
-      inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  .list-toolbar > span {
+    color: #777777;
+    font-size: 0.81rem;
+    font-weight: 560;
   }
 
-  .hero-card span {
-    display: block;
-    margin-bottom: 4px;
-    font-size: 0.97rem;
-    font-weight: 780;
-  }
-
-  .hero-card p {
-    margin: 0;
-    color: #74747d;
-    font-size: 0.87rem;
-    line-height: 1.45;
-  }
-
-  .section-heading {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 14px;
-  }
-
-  .section-heading > div {
-    display: flex;
-    gap: 9px;
-    align-items: center;
-  }
-
-  .section-heading h2 {
-    margin: 0;
-    font-size: 1.15rem;
-    letter-spacing: -0.025em;
-  }
-
-  .section-heading > div > span {
-    display: grid;
-    min-width: 24px;
-    height: 24px;
-    padding: 0 7px;
-    place-items: center;
-    border-radius: 999px;
-    color: #707078;
-    background: rgba(225, 225, 230, 0.8);
-    font-size: 0.72rem;
-    font-weight: 800;
-  }
-
-  .add-list-button,
-  .primary-button,
-  .google-button,
-  .sign-out-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+  .create-button {
+    min-height: 33px;
+    padding: 0 13px;
     border: 0;
+    border-radius: 11px;
+    color: #ffffff;
+    background: #111111;
+    font-size: 0.78rem;
+    font-weight: 700;
     cursor: pointer;
   }
 
-  .add-list-button {
-    gap: 5px;
-    padding: 9px 13px;
-    border: 1px solid rgba(255, 255, 255, 0.9);
-    border-radius: 14px;
-    color: #26262b;
-    background: rgba(255, 255, 255, 0.75);
-    box-shadow: 0 6px 18px rgba(40, 40, 47, 0.055);
-    backdrop-filter: blur(16px);
-    font-size: 0.82rem;
-    font-weight: 760;
-  }
-
-  .lists-grid {
+  .lists {
     display: grid;
-    gap: 11px;
+    gap: 0;
+    border-top: 1px solid #eeeeee;
   }
 
-  .list-card {
+  .list-row {
     display: flex;
     width: 100%;
-    min-height: 84px;
-    gap: 15px;
+    min-height: 58px;
     align-items: center;
-    padding: 15px 16px;
+    justify-content: space-between;
+    padding: 0 4px;
     text-align: left;
-    border: 1px solid rgba(255, 255, 255, 0.9);
-    border-radius: 22px;
-    color: inherit;
-    background:
-      linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(249, 249, 251, 0.9));
-    box-shadow:
-      0 12px 35px rgba(43, 45, 55, 0.055),
-      inset 0 1px 0 rgba(255, 255, 255, 0.95);
+    border: 0;
+    border-bottom: 1px solid #eeeeee;
+    background: #ffffff;
     cursor: pointer;
   }
 
-  .list-icon,
-  .large-list-icon {
-    display: grid;
-    flex: 0 0 auto;
-    place-items: center;
-    color: white;
-    background:
-      linear-gradient(145deg, color-mix(in srgb, var(--list-color), white 12%), var(--list-color));
-    box-shadow:
-      0 10px 23px color-mix(in srgb, var(--list-color), transparent 68%),
-      inset 0 1px 0 rgba(255, 255, 255, 0.28);
-  }
-
-  .list-icon {
-    width: 49px;
-    height: 49px;
-    border-radius: 16px;
-  }
-
-  .list-card-copy {
-    display: flex;
+  .list-title-text {
     min-width: 0;
-    flex: 1;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .list-card-copy strong {
     overflow: hidden;
-    font-size: 0.97rem;
-    font-weight: 760;
+    font-size: 1rem;
+    font-weight: 640;
     letter-spacing: -0.015em;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .list-card-copy small {
-    color: #85858d;
-    font-size: 0.76rem;
+  .row-arrow {
+    margin-left: 12px;
+    color: #aaaaaa;
+    font-size: 1.55rem;
+    font-weight: 300;
+    line-height: 1;
   }
 
-  .list-chevron {
-    color: #b0b0b7;
-  }
-
-  .mobile-fab {
+  .floating-button {
     position: fixed;
-    z-index: 5;
-    right: max(22px, calc((100vw - 760px) / 2 + 22px));
-    bottom: max(22px, calc(env(safe-area-inset-bottom) + 15px));
+    right: max(17px, calc((100vw - 620px) / 2 + 17px));
+    bottom: max(16px, calc(env(safe-area-inset-bottom) + 10px));
     display: none;
-    width: 58px;
-    height: 58px;
+    width: 48px;
+    height: 48px;
+    padding: 0;
     place-items: center;
     border: 0;
-    border-radius: 20px;
-    color: white;
-    background: #111114;
-    box-shadow:
-      0 17px 35px rgba(18, 18, 22, 0.22),
-      inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    border-radius: 16px;
+    color: #ffffff;
+    background: #111111;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+    font-size: 1.55rem;
+    font-weight: 300;
+    cursor: pointer;
   }
 
   .empty-state {
     display: flex;
-    min-height: 390px;
-    padding: 50px 26px;
+    min-height: 300px;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     text-align: center;
-    border: 1px dashed rgba(173, 173, 182, 0.45);
-    border-radius: 28px;
-    background: rgba(255, 255, 255, 0.45);
   }
 
-  .empty-illustration {
-    position: relative;
-    width: 112px;
-    height: 100px;
-    margin-bottom: 20px;
-  }
-
-  .empty-card {
-    position: absolute;
-    width: 76px;
-    height: 82px;
-    border-radius: 22px;
-  }
-
-  .empty-card-back {
-    top: 2px;
-    left: 15px;
-    transform: rotate(-9deg);
-    background: linear-gradient(145deg, #dfeafe, #c8dafe);
-    box-shadow: 0 14px 30px rgba(60, 101, 179, 0.14);
-  }
-
-  .empty-card-front {
-    right: 8px;
-    bottom: 0;
-    display: grid;
-    place-items: center;
-    transform: rotate(7deg);
-    color: #fff;
-    background: linear-gradient(145deg, #0d7fff, #5965eb);
-    box-shadow: 0 17px 35px rgba(51, 95, 210, 0.24);
-  }
-
-  .empty-state h3,
-  .list-empty h3 {
-    margin-bottom: 7px;
+  .empty-state h2,
+  .empty-items h2 {
+    margin-bottom: 6px;
     font-size: 1.08rem;
+    font-weight: 680;
+    letter-spacing: -0.025em;
   }
 
   .empty-state p,
-  .list-empty p {
-    max-width: 310px;
-    margin-bottom: 20px;
-    color: #7b7b84;
-    font-size: 0.87rem;
-    line-height: 1.52;
+  .empty-items p {
+    margin-bottom: 18px;
+    color: #777777;
+    font-size: 0.85rem;
   }
 
   .primary-button {
+    display: flex;
     width: 100%;
-    min-height: 52px;
-    gap: 8px;
-    padding: 0 18px;
-    border-radius: 17px;
-    color: #fff;
-    background:
-      linear-gradient(145deg, #151519, #2c2d34);
-    box-shadow:
-      0 13px 28px rgba(23, 23, 28, 0.18),
-      inset 0 1px 0 rgba(255, 255, 255, 0.2);
-    font-size: 0.9rem;
-    font-weight: 760;
-  }
-
-  .primary-button.compact {
-    width: auto;
+    min-height: 45px;
+    align-items: center;
+    justify-content: center;
+    padding: 0 15px;
+    border: 0;
+    border-radius: 13px;
+    color: #ffffff;
+    background: #111111;
+    font-size: 0.86rem;
+    font-weight: 700;
+    cursor: pointer;
   }
 
   .primary-button:disabled,
   .google-button:disabled {
-    opacity: 0.48;
+    opacity: 0.35;
     cursor: default;
   }
 
-  .list-top-bar {
-    margin-bottom: 38px;
+  .small-button {
+    width: auto;
+    min-height: 41px;
   }
 
-  .icon-button,
-  .sheet-close {
-    display: grid;
-    width: 43px;
-    height: 43px;
-    padding: 0;
-    place-items: center;
-    border: 1px solid rgba(255, 255, 255, 0.92);
-    border-radius: 15px;
-    color: #28282e;
-    background: rgba(255, 255, 255, 0.76);
-    box-shadow: 0 7px 20px rgba(39, 39, 47, 0.06);
-    backdrop-filter: blur(18px);
+  .list-header {
+    margin-bottom: 23px;
+  }
+
+  .text-action {
+    padding: 7px 0;
+    border: 0;
+    color: #111111;
+    background: transparent;
+    font-size: 0.84rem;
+    font-weight: 680;
     cursor: pointer;
   }
 
-  .menu-wrap {
+  .menu-container {
     position: relative;
+  }
+
+  .menu-button {
+    width: 38px;
+    height: 34px;
+    padding: 0;
+    border: 0;
+    border-radius: 10px;
+    background: #f4f4f4;
+    font-size: 0.82rem;
+    font-weight: 760;
+    letter-spacing: 0.04em;
+    cursor: pointer;
   }
 
   .context-menu {
     position: absolute;
     z-index: 20;
-    top: 50px;
+    top: 40px;
     right: 0;
-    width: 200px;
-    padding: 7px;
-    border: 1px solid rgba(255, 255, 255, 0.9);
-    border-radius: 17px;
-    background: rgba(253, 253, 254, 0.93);
-    box-shadow: 0 20px 55px rgba(30, 30, 38, 0.16);
-    backdrop-filter: blur(26px);
+    width: 168px;
+    padding: 5px;
+    border: 1px solid #e4e4e4;
+    border-radius: 13px;
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: 0 16px 42px rgba(0, 0, 0, 0.12);
+    backdrop-filter: blur(18px);
   }
 
   .context-menu button {
-    display: flex;
     width: 100%;
-    gap: 10px;
-    align-items: center;
-    padding: 11px;
+    padding: 10px;
+    text-align: left;
     border: 0;
-    border-radius: 11px;
-    color: #313138;
+    border-radius: 9px;
     background: transparent;
-    font-size: 0.82rem;
-    font-weight: 670;
+    font-size: 0.78rem;
+    font-weight: 620;
     cursor: pointer;
   }
 
   .context-menu button:hover {
-    background: #f1f1f4;
+    background: #f3f3f3;
   }
 
-  .context-menu .danger-row {
-    color: #e3363f;
+  .context-menu .danger-action {
+    color: #c92323;
   }
 
   .list-heading {
-    display: flex;
-    gap: 17px;
-    align-items: center;
-    margin-bottom: 27px;
-  }
-
-  .large-list-icon {
-    width: 64px;
-    height: 64px;
-    border-radius: 21px;
+    margin-bottom: 20px;
   }
 
   .list-heading h1 {
-    max-width: 510px;
-    margin-bottom: 5px;
+    max-width: 100%;
+    margin-bottom: 6px;
     overflow: hidden;
-    font-size: clamp(2rem, 7vw, 3rem);
+    font-size: 2.05rem;
+    font-weight: 730;
     line-height: 1;
-    letter-spacing: -0.052em;
+    letter-spacing: -0.055em;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .list-heading p {
     margin: 0;
-    color: #797981;
-    font-size: 0.84rem;
+    color: #777777;
+    font-size: 0.81rem;
   }
 
-  .items-panel {
-    min-height: 320px;
+  .items {
+    min-height: 280px;
+    border-top: 1px solid #eeeeee;
   }
 
   .item-row {
     display: flex;
-    min-height: 61px;
-    gap: 13px;
+    min-height: 53px;
+    gap: 11px;
     align-items: center;
-    padding: 8px 4px;
-    border-bottom: 1px solid rgba(212, 212, 218, 0.66);
-  }
-
-  .item-row:last-child {
-    border-bottom: 0;
+    border-bottom: 1px solid #eeeeee;
   }
 
   .check-button {
     display: grid;
-    width: 27px;
-    height: 27px;
+    width: 23px;
+    height: 23px;
     flex: 0 0 auto;
     padding: 0;
     place-items: center;
-    border: 1.7px solid #d5d5dc;
+    border: 1.5px solid #cfcfcf;
     border-radius: 50%;
-    color: white;
+    color: #ffffff;
+    background: #ffffff;
     cursor: pointer;
   }
 
   .check-button span {
     display: grid;
     place-items: center;
+    font-size: 0.72rem;
+    font-weight: 800;
   }
 
   .item-text {
-    position: relative;
     min-width: 0;
     flex: 1;
-    padding: 10px 0;
+    padding: 15px 0;
     overflow: hidden;
     text-align: left;
     border: 0;
-    color: #1d1d22;
     background: transparent;
     cursor: pointer;
   }
@@ -1879,29 +2020,29 @@ const styles = `
   .item-text span {
     position: relative;
     display: inline;
-    font-size: 0.96rem;
-    font-weight: 580;
-    line-height: 1.4;
+    font-size: 0.98rem;
+    font-weight: 540;
+    line-height: 1.35;
     transition:
-      color 220ms ease,
-      opacity 220ms ease;
+      color 180ms ease,
+      opacity 180ms ease;
   }
 
   .item-text span::after {
     position: absolute;
-    top: 52%;
+    top: 51%;
     left: 0;
     width: 100%;
-    height: 1.5px;
+    height: 1px;
     content: "";
     transform: scaleX(0);
     transform-origin: left center;
     background: currentColor;
-    transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+    transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .item-row.completed .item-text span {
-    color: #9898a0;
+    color: #999999;
     opacity: 0.72;
   }
 
@@ -1911,111 +2052,87 @@ const styles = `
 
   .delete-item-button {
     display: grid;
-    width: 36px;
-    height: 36px;
+    width: 30px;
+    height: 30px;
     flex: 0 0 auto;
+    padding: 0;
     place-items: center;
     border: 0;
-    border-radius: 12px;
-    color: #b0b0b7;
+    border-radius: 9px;
+    color: #999999;
     background: transparent;
-    opacity: 0;
+    font-size: 1.25rem;
+    font-weight: 300;
     cursor: pointer;
-    transition:
-      opacity 170ms ease,
-      color 170ms ease,
-      background 170ms ease;
-  }
-
-  .item-row:hover .delete-item-button,
-  .delete-item-button:focus-visible {
-    opacity: 1;
   }
 
   .delete-item-button:hover {
-    color: #e43c45;
-    background: rgba(255, 59, 48, 0.08);
+    color: #111111;
+    background: #f3f3f3;
   }
 
-  .list-empty {
+  .empty-items {
     display: flex;
-    min-height: 350px;
+    min-height: 280px;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     text-align: center;
   }
 
-  .list-empty-icon {
-    display: grid;
-    width: 70px;
-    height: 70px;
-    margin-bottom: 18px;
-    place-items: center;
-    border-radius: 24px;
-    color: #767680;
-    background:
-      linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(235, 235, 240, 0.78));
-    box-shadow:
-      0 17px 40px rgba(38, 38, 46, 0.08),
-      inset 0 1px 0 #fff;
-  }
-
   .add-item-bar {
     position: fixed;
     z-index: 10;
-    right: max(18px, calc((100vw - 760px) / 2 + 18px));
-    bottom: max(17px, env(safe-area-inset-bottom));
-    left: max(18px, calc((100vw - 760px) / 2 + 18px));
+    right: max(13px, calc((100vw - 620px) / 2 + 13px));
+    bottom: max(11px, env(safe-area-inset-bottom));
+    left: max(13px, calc((100vw - 620px) / 2 + 13px));
     display: flex;
-    max-width: 724px;
-    min-height: 62px;
-    gap: 10px;
+    max-width: 594px;
+    min-height: 51px;
+    gap: 8px;
     align-items: center;
     margin: auto;
-    padding: 8px 8px 8px 18px;
-    border: 1px solid rgba(255, 255, 255, 0.9);
-    border-radius: 21px;
-    background: rgba(253, 253, 254, 0.88);
-    box-shadow:
-      0 20px 55px rgba(28, 28, 35, 0.15),
-      inset 0 1px 0 rgba(255, 255, 255, 0.98);
-    backdrop-filter: blur(28px) saturate(150%);
+    padding: 5px 5px 5px 14px;
+    border: 1px solid #dddddd;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 11px 32px rgba(0, 0, 0, 0.11);
+    backdrop-filter: blur(18px);
   }
 
   .add-item-bar input {
     min-width: 0;
     flex: 1;
+    padding: 0;
     border: 0;
     outline: 0;
-    color: #1a1a1f;
+    color: #111111;
     background: transparent;
-    font-size: 0.95rem;
+    font-size: 0.94rem;
   }
 
   .add-item-bar input::placeholder {
-    color: #96969d;
+    color: #999999;
   }
 
   .add-item-bar button {
     display: grid;
-    width: 46px;
-    height: 46px;
+    width: 40px;
+    height: 40px;
     flex: 0 0 auto;
+    padding: 0;
     place-items: center;
     border: 0;
-    border-radius: 15px;
-    color: white;
-    background:
-      linear-gradient(145deg, color-mix(in srgb, var(--list-color), white 9%), var(--list-color));
-    box-shadow:
-      0 10px 24px color-mix(in srgb, var(--list-color), transparent 66%),
-      inset 0 1px 0 rgba(255, 255, 255, 0.28);
+    border-radius: 12px;
+    color: #ffffff;
+    background: #111111;
+    font-size: 1.4rem;
+    font-weight: 300;
     cursor: pointer;
   }
 
   .add-item-bar button:disabled {
-    opacity: 0.35;
+    opacity: 0.25;
     cursor: default;
   }
 
@@ -2026,262 +2143,262 @@ const styles = `
     display: flex;
     align-items: flex-end;
     justify-content: center;
-    padding: 18px 18px max(18px, env(safe-area-inset-bottom));
-    background: rgba(18, 18, 23, 0.28);
-    backdrop-filter: blur(8px);
+    padding:
+      8px
+      8px
+      max(8px, env(safe-area-inset-bottom));
+    background: rgba(0, 0, 0, 0.2);
+    backdrop-filter: blur(5px);
   }
 
   .sheet {
-    width: min(100%, 540px);
-    max-height: calc(100dvh - 30px);
-    overflow-y: auto;
-    border: 1px solid rgba(255, 255, 255, 0.95);
-    border-radius: 30px;
-    background: rgba(251, 251, 253, 0.96);
-    box-shadow: 0 30px 90px rgba(15, 15, 20, 0.25);
-    backdrop-filter: blur(30px) saturate(155%);
+    width: min(100%, 460px);
+    border: 1px solid #e4e4e4;
+    border-radius: 23px;
+    background: #ffffff;
+    box-shadow: 0 24px 65px rgba(0, 0, 0, 0.18);
   }
 
   .sheet-content {
-    padding: 11px 22px 24px;
+    padding: 9px 17px 18px;
   }
 
   .sheet-handle {
-    width: 40px;
-    height: 5px;
-    margin: 0 auto 22px;
+    width: 34px;
+    height: 4px;
+    margin: 0 auto 17px;
     border-radius: 99px;
-    background: #d1d1d6;
+    background: #d4d4d4;
   }
 
-  .sheet-heading {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 25px;
+  .sheet-header {
+    margin-bottom: 17px;
   }
 
-  .sheet-heading h2 {
+  .sheet-header h2 {
     margin: 0;
-    font-size: 1.65rem;
+    font-size: 1.35rem;
+    font-weight: 720;
     letter-spacing: -0.04em;
   }
 
-  .sheet-close {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    background: #ebebef;
-    box-shadow: none;
-  }
-
-  .sheet-field {
-    display: block;
-    margin-bottom: 22px;
-  }
-
-  .sheet-field > span,
-  .color-section > span,
-  .auth-form label > span {
-    display: block;
-    margin: 0 0 8px 3px;
-    color: #6f6f77;
-    font-size: 0.75rem;
-    font-weight: 720;
-  }
-
-  .sheet-field input,
-  .auth-form input {
-    width: 100%;
-    min-height: 53px;
-    padding: 0 15px;
-    border: 1px solid rgba(218, 218, 224, 0.9);
-    border-radius: 16px;
-    outline: 0;
-    color: #1b1b20;
-    background: rgba(255, 255, 255, 0.8);
-    box-shadow: inset 0 1px 2px rgba(30, 30, 35, 0.03);
-  }
-
-  .sheet-field input:focus,
-  .auth-form input:focus {
-    border-color: rgba(0, 122, 255, 0.55);
-    box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.09);
-  }
-
-  .color-section {
-    margin-bottom: 27px;
-  }
-
-  .color-grid {
-    display: flex;
-    gap: 11px;
-    flex-wrap: wrap;
-  }
-
-  .color-option {
-    display: grid;
-    width: 42px;
-    height: 42px;
-    padding: 0;
-    place-items: center;
-    border: 3px solid transparent;
-    border-radius: 50%;
-    color: white;
-    background:
-      linear-gradient(145deg, color-mix(in srgb, var(--option-color), white 15%), var(--option-color));
-    box-shadow: 0 9px 19px color-mix(in srgb, var(--option-color), transparent 73%);
+  .sheet-header button {
+    padding: 7px 0 7px 12px;
+    border: 0;
+    background: transparent;
+    font-size: 0.8rem;
+    font-weight: 700;
     cursor: pointer;
   }
 
-  .color-option.selected {
-    border-color: rgba(255, 255, 255, 0.95);
-    outline: 2px solid var(--option-color);
+  .sheet-input,
+  .auth-form input {
+    width: 100%;
+    min-height: 45px;
+    padding: 0 13px;
+    border: 1px solid #dddddd;
+    border-radius: 12px;
+    outline: 0;
+    color: #111111;
+    background: #ffffff;
+    font-size: 0.88rem;
   }
 
-  .profile-card {
+  .sheet-input {
+    margin-bottom: 12px;
+  }
+
+  .sheet-input:focus,
+  .auth-form input:focus {
+    border-color: #111111;
+  }
+
+  .account-row {
     display: flex;
-    gap: 14px;
+    gap: 11px;
     align-items: center;
-    margin-bottom: 17px;
-    padding: 15px;
-    border: 1px solid rgba(255, 255, 255, 0.95);
-    border-radius: 20px;
-    background: rgba(255, 255, 255, 0.68);
-    box-shadow: 0 10px 26px rgba(40, 40, 48, 0.05);
+    margin-bottom: 12px;
+    padding: 11px 0;
+    border-top: 1px solid #eeeeee;
+    border-bottom: 1px solid #eeeeee;
   }
 
-  .profile-avatar {
+  .account-avatar {
     display: grid;
-    width: 52px;
-    height: 52px;
+    width: 41px;
+    height: 41px;
+    flex: 0 0 auto;
     place-items: center;
     overflow: hidden;
-    border-radius: 17px;
-    color: #74747d;
-    background: #ececf0;
+    border-radius: 50%;
+    color: #ffffff;
+    background: #111111;
+    font-size: 0.7rem;
+    font-weight: 750;
   }
 
-  .profile-card > div:last-child {
+  .account-row > div:last-child {
     min-width: 0;
   }
 
-  .profile-card strong,
-  .profile-card span {
+  .account-row strong,
+  .account-row span {
     display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .profile-card strong {
-    margin-bottom: 4px;
-    font-size: 0.94rem;
-  }
-
-  .profile-card span {
-    color: #7e7e86;
-    font-size: 0.78rem;
-  }
-
-  .sign-out-button {
-    width: 100%;
-    min-height: 51px;
-    gap: 9px;
-    border-radius: 16px;
-    color: #e0343f;
-    background: rgba(255, 59, 48, 0.08);
+  .account-row strong {
+    margin-bottom: 3px;
     font-size: 0.88rem;
-    font-weight: 740;
+  }
+
+  .account-row span {
+    color: #777777;
+    font-size: 0.74rem;
+  }
+
+  .offline-access-note {
+    margin-bottom: 14px;
+    padding: 11px 0;
+    border-bottom: 1px solid #eeeeee;
+  }
+
+  .offline-access-note strong,
+  .offline-access-note span {
+    display: block;
+  }
+
+  .offline-access-note strong {
+    margin-bottom: 4px;
+    font-size: 0.82rem;
+  }
+
+  .offline-access-note span {
+    color: #777777;
+    font-size: 0.73rem;
+    line-height: 1.45;
   }
 
   .auth-page,
   .setup-page,
-  .loading-screen {
+  .loading-page,
+  .offline-expired-page {
     min-height: 100vh;
     min-height: 100dvh;
     padding:
-      max(24px, env(safe-area-inset-top))
-      max(18px, env(safe-area-inset-right))
-      max(24px, env(safe-area-inset-bottom))
-      max(18px, env(safe-area-inset-left));
-    background:
-      radial-gradient(circle at 15% 10%, rgba(0, 122, 255, 0.12), transparent 28rem),
-      radial-gradient(circle at 90% 80%, rgba(175, 82, 222, 0.11), transparent 27rem),
-      #f5f5f7;
+      max(16px, env(safe-area-inset-top))
+      max(14px, env(safe-area-inset-right))
+      max(16px, env(safe-area-inset-bottom))
+      max(14px, env(safe-area-inset-left));
+    background: #ffffff;
   }
 
   .auth-page,
-  .setup-page {
+  .setup-page,
+  .offline-expired-page {
     display: grid;
     place-items: center;
   }
 
-  .auth-card,
-  .setup-card {
-    width: min(100%, 430px);
-    padding: 30px;
-    border: 1px solid rgba(255, 255, 255, 0.9);
-    border-radius: 32px;
-    background: rgba(252, 252, 253, 0.85);
-    box-shadow:
-      0 35px 90px rgba(38, 38, 48, 0.13),
-      inset 0 1px 0 #fff;
-    backdrop-filter: blur(30px) saturate(150%);
+  .auth-panel,
+  .offline-expired-panel {
+    width: min(100%, 330px);
+    padding: 22px 19px 19px;
+    border: 1px solid #e6e6e6;
+    border-radius: 20px;
+    background: #ffffff;
+    box-shadow: 0 18px 55px rgba(0, 0, 0, 0.07);
   }
 
-  .brand-mark {
-    display: grid;
-    width: 58px;
-    height: 58px;
-    place-items: center;
-    border-radius: 19px;
-    color: white;
-    background: linear-gradient(145deg, #111216, #363840);
-    box-shadow:
-      0 15px 32px rgba(20, 20, 26, 0.22),
-      inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  .offline-expired-panel {
+    text-align: center;
+  }
+
+  .offline-expired-panel h1 {
+    margin-bottom: 8px;
+    font-size: 1.65rem;
+    letter-spacing: -0.05em;
+  }
+
+  .offline-expired-panel p {
+    margin-bottom: 18px;
+    color: #777777;
+    font-size: 0.82rem;
+    line-height: 1.5;
+  }
+
+  .offline-sign-out {
+    margin-top: 13px;
+    padding: 5px;
+    border: 0;
+    color: #777777;
+    background: transparent;
+    font-size: 0.72rem;
+    font-weight: 650;
+    cursor: pointer;
+  }
+
+  .auth-name {
+    margin-bottom: 23px;
+    font-size: 1.4rem;
+    font-weight: 780;
+    letter-spacing: -0.055em;
   }
 
   .auth-heading {
-    margin: 27px 0 24px;
+    margin-bottom: 18px;
   }
 
-  .auth-heading h1,
-  .setup-card h1 {
-    margin-bottom: 10px;
-    font-size: 2.7rem;
-    line-height: 0.95;
-    letter-spacing: -0.06em;
+  .auth-heading h1 {
+    margin-bottom: 5px;
+    font-size: 1.65rem;
+    font-weight: 730;
+    line-height: 1;
+    letter-spacing: -0.05em;
   }
 
-  .auth-heading p,
-  .setup-card p {
+  .auth-heading p {
     margin: 0;
-    color: #74747d;
-    font-size: 0.9rem;
-    line-height: 1.55;
+    color: #777777;
+    font-size: 0.82rem;
+    line-height: 1.45;
   }
 
   .google-button {
+    display: flex;
     width: 100%;
-    min-height: 52px;
-    gap: 11px;
-    border: 1px solid #dedee3;
-    border-radius: 17px;
-    color: #28282e;
-    background: rgba(255, 255, 255, 0.82);
-    box-shadow: 0 7px 19px rgba(30, 30, 36, 0.045);
-    font-size: 0.88rem;
-    font-weight: 720;
+    min-height: 44px;
+    gap: 9px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #dddddd;
+    border-radius: 12px;
+    color: #111111;
+    background: #ffffff;
+    font-size: 0.8rem;
+    font-weight: 670;
+    cursor: pointer;
+  }
+
+  .google-mark {
+    display: grid;
+    width: 19px;
+    height: 19px;
+    place-items: center;
+    border: 1px solid #d8d8d8;
+    border-radius: 50%;
+    font-size: 0.68rem;
+    font-weight: 800;
   }
 
   .divider {
     display: flex;
     align-items: center;
-    margin: 21px 0;
-    color: #9a9aa2;
-    font-size: 0.72rem;
+    margin: 15px 0;
+    color: #999999;
+    font-size: 0.66rem;
   }
 
   .divider::before,
@@ -2289,143 +2406,141 @@ const styles = `
     height: 1px;
     flex: 1;
     content: "";
-    background: #dedee3;
+    background: #e8e8e8;
   }
 
   .divider span {
-    padding: 0 12px;
+    padding: 0 9px;
   }
 
   .auth-form {
     display: grid;
-    gap: 14px;
+    gap: 9px;
   }
 
   .forgot-button,
-  .mode-button {
+  .switch-button {
+    padding: 0;
     border: 0;
-    color: #62626b;
+    color: #666666;
     background: transparent;
+    font-size: 0.71rem;
+    font-weight: 650;
     cursor: pointer;
   }
 
   .forgot-button {
-    margin-top: -3px;
+    margin-top: 1px;
     justify-self: end;
-    font-size: 0.75rem;
-    font-weight: 680;
   }
 
-  .mode-button {
+  .switch-button {
     display: block;
     width: 100%;
-    margin-top: 20px;
-    font-size: 0.78rem;
-    font-weight: 680;
+    margin-top: 15px;
+    text-align: center;
   }
 
-  .loading-screen {
-    display: flex;
-    gap: 13px;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
+  .loading-page {
+    display: grid;
+    place-items: center;
   }
 
-  .loading-screen strong {
-    font-size: 1rem;
-    letter-spacing: 0.03em;
+  .loading-page strong {
+    font-size: 1.35rem;
+    letter-spacing: -0.05em;
+  }
+
+  .setup-card {
+    width: min(100%, 420px);
+    padding: 22px;
+    border: 1px solid #e4e4e4;
+    border-radius: 18px;
+  }
+
+  .setup-card h1 {
+    margin-bottom: 7px;
+    font-size: 1.6rem;
+    letter-spacing: -0.045em;
+  }
+
+  .setup-card p {
+    color: #777777;
+    font-size: 0.8rem;
+    line-height: 1.5;
   }
 
   .setup-card code {
-    margin-left: 5px;
-    padding: 2px 5px;
-    border-radius: 5px;
-    background: #ebebef;
+    padding: 2px 4px;
+    border-radius: 4px;
+    background: #f1f1f1;
   }
 
   .setup-card pre {
-    margin: 23px 0 0;
-    padding: 16px;
+    margin: 17px 0 0;
+    padding: 13px;
     overflow-x: auto;
-    border-radius: 16px;
-    color: #dfe7ff;
-    background: #15161a;
-    font-size: 0.71rem;
-    line-height: 1.7;
+    border-radius: 11px;
+    color: #ffffff;
+    background: #111111;
+    font-size: 0.66rem;
+    line-height: 1.65;
   }
 
   .toast {
     position: fixed;
     z-index: 300;
-    right: 20px;
-    bottom: max(22px, calc(env(safe-area-inset-bottom) + 12px));
-    left: 20px;
+    right: 14px;
+    bottom: max(16px, calc(env(safe-area-inset-bottom) + 8px));
+    left: 14px;
     width: fit-content;
-    max-width: calc(100vw - 40px);
+    max-width: calc(100vw - 28px);
     margin: auto;
-    padding: 12px 17px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 15px;
-    color: white;
-    background: rgba(26, 26, 31, 0.92);
-    box-shadow: 0 15px 40px rgba(20, 20, 25, 0.24);
-    backdrop-filter: blur(22px);
-    font-size: 0.82rem;
-    font-weight: 680;
+    padding: 10px 13px;
+    border-radius: 11px;
+    color: #ffffff;
+    background: rgba(17, 17, 17, 0.95);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.16);
+    font-size: 0.75rem;
+    font-weight: 650;
+    backdrop-filter: blur(14px);
   }
 
   .skeleton {
     display: block;
     overflow: hidden;
-    border-radius: 9px;
+    border-radius: 99px;
     background:
       linear-gradient(
         90deg,
-        #ececf0 25%,
-        #f7f7f9 45%,
-        #ececf0 65%
+        #ededed 25%,
+        #f8f8f8 45%,
+        #ededed 65%
       );
     background-size: 250% 100%;
-    animation: skeleton-shimmer 1.35s infinite linear;
+    animation: shimmer 1.2s infinite linear;
   }
 
-  .skeleton-card {
+  .skeleton-row {
     cursor: default;
   }
 
-  .skeleton-square {
-    width: 49px;
-    height: 49px;
-    border-radius: 16px;
-  }
-
-  .skeleton-title {
+  .skeleton-list-title {
     width: 42%;
-    height: 12px;
+    height: 10px;
   }
 
-  .skeleton-caption {
-    width: 25%;
-    height: 9px;
-  }
-
-  .skeleton-check {
-    width: 27px;
-    height: 27px;
-    border-radius: 50%;
+  .skeleton-circle {
+    width: 23px;
+    height: 23px;
   }
 
   .skeleton-item-text {
-    width: min(62%, 320px);
-    height: 12px;
+    width: min(58%, 260px);
+    height: 10px;
   }
 
-  .item-skeletons {
-    display: grid;
-  }
-
-  @keyframes skeleton-shimmer {
+  @keyframes shimmer {
     from {
       background-position: 100% 0;
     }
@@ -2435,65 +2550,50 @@ const styles = `
     }
   }
 
-  @media (max-width: 620px) {
+  @media (max-width: 600px) {
     .screen {
-      padding-right: 18px;
-      padding-left: 18px;
+      padding-top: max(17px, env(safe-area-inset-top));
+      padding-right: 15px;
+      padding-left: 15px;
     }
 
-    .top-bar h1 {
-      font-size: 2.6rem;
+    .home-header {
+      margin-bottom: 20px;
     }
 
-    .hero-card {
-      border-radius: 23px;
+    .home-header h1,
+    .list-heading h1 {
+      font-size: 2rem;
     }
 
-    .add-list-button {
+    .create-button {
       display: none;
     }
 
-    .mobile-fab {
+    .floating-button {
       display: grid;
     }
 
-    .list-card {
-      min-height: 78px;
-      border-radius: 20px;
+    .auth-panel {
+      width: min(100%, 315px);
+      padding: 20px 17px 17px;
+      border-radius: 18px;
+      box-shadow: 0 16px 45px rgba(0, 0, 0, 0.065);
     }
 
-    .list-icon {
-      width: 46px;
-      height: 46px;
+    .auth-name {
+      margin-bottom: 20px;
+      font-size: 1.3rem;
     }
 
-    .delete-item-button {
-      opacity: 1;
-    }
-
-    .auth-card,
-    .setup-card {
-      padding: 25px 20px;
-      border-radius: 27px;
-    }
-
-    .auth-heading h1,
-    .setup-card h1 {
-      font-size: 2.4rem;
+    .auth-heading h1 {
+      font-size: 1.52rem;
     }
   }
 
   @media (min-width: 760px) {
     .screen {
-      padding-top: 52px;
-    }
-
-    .lists-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .empty-state {
-      grid-column: 1 / -1;
+      padding-top: 38px;
     }
   }
 
