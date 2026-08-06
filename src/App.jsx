@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import * as chrono from "chrono-node";
 
 import { initializeApp } from "firebase/app";
 
@@ -133,6 +134,124 @@ async function clearOfflineAccess() {
 /* Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
 
+const DEFAULT_DATE_ONLY_HOUR = 12;
+const DEFAULT_DATE_ONLY_MINUTE = 0;
+
+const QUANTITY_UNITS = [
+  "bottles",
+  "bottle",
+  "packs",
+  "pack",
+  "boxes",
+  "box",
+  "bags",
+  "bag",
+  "pieces",
+  "piece",
+  "items",
+  "item",
+  "pairs",
+  "pair",
+  "sets",
+  "set",
+  "cans",
+  "can",
+  "jars",
+  "jar",
+  "tins",
+  "tin",
+  "rolls",
+  "roll",
+  "sheets",
+  "sheet",
+  "tabs",
+  "tablets",
+  "capsules",
+  "capsule",
+  "cups",
+  "cup",
+  "tablespoons",
+  "tablespoon",
+  "tbsp",
+  "teaspoons",
+  "teaspoon",
+  "tsp",
+  "ounces",
+  "ounce",
+  "oz",
+  "pounds",
+  "pound",
+  "lbs",
+  "lb",
+  "kilograms",
+  "kilogram",
+  "kgs",
+  "kg",
+  "grams",
+  "gram",
+  "g",
+  "milligrams",
+  "milligram",
+  "mg",
+  "litres",
+  "litre",
+  "liters",
+  "liter",
+  "millilitres",
+  "millilitre",
+  "milliliters",
+  "milliliter",
+  "ml",
+  "l",
+  "metres",
+  "metre",
+  "meters",
+  "meter",
+  "centimetres",
+  "centimetre",
+  "centimeters",
+  "centimeter",
+  "cm",
+  "dozens",
+  "dozen",
+];
+
+const NUMBER_WORDS = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  thirteen: 13,
+  fourteen: 14,
+  fifteen: 15,
+  sixteen: 16,
+  seventeen: 17,
+  eighteen: 18,
+  nineteen: 19,
+  twenty: 20,
+  thirty: 30,
+  forty: 40,
+  fifty: 50,
+  sixty: 60,
+  seventy: 70,
+  eighty: 80,
+  ninety: 90,
+  hundred: 100,
+  a: 1,
+  an: 1,
+  couple: 2,
+  few: 3,
+  dozen: 12,
+};
+
 function getInitials(user) {
   const source = user?.displayName || user?.email || "L";
 
@@ -162,9 +281,450 @@ function normalize(value) {
 }
 
 function cloneFirestoreData(value) {
+  const { id: _ignoredId, ...data } = value;
+  return data;
+}
+
+function startOfDay(date) {
+  const result = new Date(date);
+  result.setHours(0, 0, 0, 0);
+  return result;
+}
+
+function addDays(date, amount) {
+  const result = new Date(date);
+  result.setDate(result.getDate() + amount);
+  return result;
+}
+
+function isValidDate(value) {
+  return value instanceof Date && !Number.isNaN(value.getTime());
+}
+
+function setLocalTime(date, hours, minutes) {
+  const result = new Date(date);
+  result.setHours(hours, minutes, 0, 0);
+  return result;
+}
+
+function isExplicitTimeResult(result) {
+  if (!result?.start) return false;
+
+  return (
+    result.start.isCertain("hour") ||
+    result.start.isCertain("minute") ||
+    result.start.isCertain("meridiem")
+  );
+}
+
+function normalizeNaturalInput(input) {
+  return input
+    .replace(/[–—]/g, "-")
+    .replace(/\b(\d{1,2})\s*([ap])\.?\s*m\.?\b/gi, "$1$2m")
+    .replace(
+      /\b(\d{1,2})\s*[:.]\s*(\d{2})\s*([ap])\.?\s*m\.?\b/gi,
+      "$1:$2$3m",
+    )
+    .replace(/\b(\d{1,2})\s+o['’]?clock\b/gi, "$1:00")
+    .replace(/\bday\s+after\s+tmrw\b/gi, "day after tomorrow")
+    .replace(/\btmrw\b/gi, "tomorrow")
+    .replace(/\btonite\b/gi, "tonight")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseNumberWords(value) {
+  const cleaned = value.toLowerCase().replace(/-/g, " ").trim();
+
+  if (/^\d+(?:\.\d+)?$/.test(cleaned)) {
+    return Number(cleaned);
+  }
+
+  const words = cleaned.split(/\s+/);
+  let total = 0;
+  let current = 0;
+  let found = false;
+
+  for (const word of words) {
+    const number = NUMBER_WORDS[word];
+
+    if (number === undefined) return null;
+
+    found = true;
+
+    if (number === 100) {
+      current = Math.max(current, 1) * 100;
+    } else {
+      current += number;
+    }
+  }
+
+  total += current;
+  return found ? total : null;
+}
+
+function parseQuantity(input) {
+  const unitPattern = QUANTITY_UNITS
+    .slice()
+    .sort((a, b) => b.length - a.length)
+    .map(escapeRegExp)
+    .join("|");
+
+  const numberPattern =
+    "(?:\\d+(?:\\.\\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|a|an|couple|few)(?:[-\\s]+(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred))?";
+
+  const unitMatch = input.match(
+    new RegExp(
+      `\\b(${numberPattern})\\s*(${unitPattern})\\b(?:\\s+of\\b)?`,
+      "i",
+    ),
+  );
+
+  if (unitMatch) {
+    const quantity = parseNumberWords(unitMatch[1]);
+
+    if (quantity !== null) {
+      return {
+        quantity,
+        unit: unitMatch[2].toLowerCase(),
+        matchedText: unitMatch[0],
+        index: unitMatch.index ?? 0,
+      };
+    }
+  }
+
+  const multiplierMatch = input.match(
+    new RegExp(
+      `\\b(${numberPattern})\\s*[x×]\\s+([\\p{L}\\p{N}][^,.;]*)`,
+      "iu",
+    ),
+  );
+
+  if (multiplierMatch) {
+    const quantity = parseNumberWords(multiplierMatch[1]);
+
+    if (quantity !== null) {
+      return {
+        quantity,
+        unit: "",
+        matchedText: multiplierMatch[1],
+        index: multiplierMatch.index ?? 0,
+      };
+    }
+  }
+
+  const genericMatch = input.match(
+    new RegExp(
+      `\\b(?:buy|get|add|order|pick\\s+up|bring|need|take)\\s+(${numberPattern})\\b`,
+      "i",
+    ),
+  );
+
+  if (genericMatch) {
+    const quantity = parseNumberWords(genericMatch[1]);
+
+    if (quantity !== null) {
+      return {
+        quantity,
+        unit: "",
+        matchedText: genericMatch[1],
+        index:
+          (genericMatch.index ?? 0) +
+          genericMatch[0].lastIndexOf(genericMatch[1]),
+      };
+    }
+  }
+
+  return null;
+}
+
+function maskRange(value, index, length) {
+  return (
+    value.slice(0, index) +
+    " ".repeat(length) +
+    value.slice(index + length)
+  );
+}
+
+function parseChronoResult(input, referenceDate) {
+  const results = chrono.casual.parse(
+    input,
+    {
+      instant: referenceDate,
+      timezone: referenceDate.getTimezoneOffset(),
+    },
+    {
+      forwardDate: true,
+    },
+  );
+
+  if (results.length === 0) return null;
+
+  const sortedResults = [...results].sort((first, second) => {
+    const firstScore =
+      Number(isExplicitTimeResult(first)) * 4 +
+      Number(first.start.isCertain("day")) * 3 +
+      first.text.length / 1000;
+
+    const secondScore =
+      Number(isExplicitTimeResult(second)) * 4 +
+      Number(second.start.isCertain("day")) * 3 +
+      second.text.length / 1000;
+
+    return secondScore - firstScore;
+  });
+
+  return sortedResults[0];
+}
+
+function parseNaturalDateTime(input, quantityResult) {
+  const referenceDate = new Date();
+  let chronoInput = input;
+
+  if (quantityResult) {
+    chronoInput = maskRange(
+      chronoInput,
+      quantityResult.index,
+      quantityResult.matchedText.length,
+    );
+  }
+
+  const result = parseChronoResult(chronoInput, referenceDate);
+
+  if (!result) {
+    return {
+      dueAt: null,
+      matchedText: null,
+      hasExplicitTime: false,
+      warning: "",
+    };
+  }
+
+  const hasExplicitTime = isExplicitTimeResult(result);
+  let dueAt = result.start.date();
+
+  if (!isValidDate(dueAt)) {
+    return {
+      dueAt: null,
+      matchedText: null,
+      hasExplicitTime: false,
+      warning: "The date or time could not be understood safely.",
+    };
+  }
+
+  if (!hasExplicitTime) {
+    dueAt = setLocalTime(
+      dueAt,
+      DEFAULT_DATE_ONLY_HOUR,
+      DEFAULT_DATE_ONLY_MINUTE,
+    );
+  } else {
+    const hour = result.start.get("hour");
+    const minute = result.start.get("minute") ?? 0;
+
+    if (
+      !Number.isInteger(hour) ||
+      hour < 0 ||
+      hour > 23 ||
+      !Number.isInteger(minute) ||
+      minute < 0 ||
+      minute > 59
+    ) {
+      return {
+        dueAt: null,
+        matchedText: null,
+        hasExplicitTime: false,
+        warning: "The time could not be understood safely.",
+      };
+    }
+
+    dueAt = setLocalTime(dueAt, hour, minute);
+  }
+
   return {
-    ...value,
+    dueAt,
+    matchedText: result.text,
+    hasExplicitTime,
+    warning: "",
   };
+}
+
+function cleanupTaskText(input, matches) {
+  let text = input;
+
+  matches
+    .filter(Boolean)
+    .sort((first, second) => second.length - first.length)
+    .forEach((match) => {
+      text = text.replace(new RegExp(escapeRegExp(match), "i"), " ");
+    });
+
+  text = text
+    .replace(/\b(?:on|at|by|for|around|about)\s*$/i, "")
+    .replace(/\s+([,.;!?])/g, "$1")
+    .replace(/^[,.;:\s-]+|[,.;:\s-]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!text) return input.trim();
+
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function parseNaturalInput(input) {
+  const rawInput = input.trim();
+  const normalizedInput = normalizeNaturalInput(rawInput);
+  const parsedQuantity = parseQuantity(normalizedInput);
+  const parsedDateTime = parseNaturalDateTime(
+    normalizedInput,
+    parsedQuantity,
+  );
+
+  const text = cleanupTaskText(normalizedInput, [
+    parsedDateTime.matchedText,
+    parsedQuantity?.matchedText,
+  ]);
+
+  return {
+    rawInput,
+    text,
+    quantity: parsedQuantity?.quantity ?? null,
+    quantityUnit: parsedQuantity?.unit || "",
+    dueAt: parsedDateTime.dueAt,
+    hasExplicitTime: parsedDateTime.hasExplicitTime,
+    warning: parsedDateTime.warning,
+    hasNaturalData: Boolean(
+      parsedDateTime.dueAt ||
+        parsedQuantity,
+    ),
+  };
+}
+
+function formatDateForInput(value) {
+  if (!value) return "";
+
+  const date =
+    typeof value?.toDate === "function"
+      ? value.toDate()
+      : new Date(value);
+
+  if (!isValidDate(date)) return "";
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function formatTimeForInput(value) {
+  if (!value) return "";
+
+  const date =
+    typeof value?.toDate === "function"
+      ? value.toDate()
+      : new Date(value);
+
+  if (!isValidDate(date)) return "";
+
+  return `${String(date.getHours()).padStart(2, "0")}:${String(
+    date.getMinutes(),
+  ).padStart(2, "0")}`;
+}
+
+function combineLocalDateAndTime(dateValue, timeValue) {
+  if (!dateValue) return null;
+
+  const [year, month, day] = dateValue.split("-").map(Number);
+  const [hours, minutes] = (timeValue || "12:00").split(":").map(Number);
+
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day) ||
+    !Number.isInteger(hours) ||
+    !Number.isInteger(minutes)
+  ) {
+    return null;
+  }
+
+  const result = new Date(
+    year,
+    month - 1,
+    day,
+    hours,
+    minutes,
+    0,
+    0,
+  );
+
+  if (
+    result.getFullYear() !== year ||
+    result.getMonth() !== month - 1 ||
+    result.getDate() !== day ||
+    result.getHours() !== hours ||
+    result.getMinutes() !== minutes
+  ) {
+    return null;
+  }
+
+  return result;
+}
+
+function formatDueDate(value) {
+  if (!value) return "";
+
+  const date =
+    typeof value?.toDate === "function"
+      ? value.toDate()
+      : new Date(value);
+
+  if (!isValidDate(date)) return "";
+
+  const today = startOfDay(new Date());
+  const tomorrow = addDays(today, 1);
+  const dateOnly = startOfDay(date);
+
+  let dateLabel;
+
+  if (dateOnly.getTime() === today.getTime()) {
+    dateLabel = "Today";
+  } else if (dateOnly.getTime() === tomorrow.getTime()) {
+    dateLabel = "Tomorrow";
+  } else {
+    dateLabel = new Intl.DateTimeFormat(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    }).format(date);
+  }
+
+  const timeLabel = new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(date);
+
+  return `${dateLabel}, ${timeLabel}`;
+}
+
+function formatQuantity(quantity, unit) {
+  if (quantity === null || quantity === undefined) return "";
+
+  return unit ? `${quantity} ${unit}` : `×${quantity}`;
+}
+
+function getItemMetadata(item) {
+  return [
+    formatQuantity(item.quantity, item.quantityUnit),
+    formatDueDate(item.dueAt),
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1146,6 +1706,7 @@ function ListScreen({
   const [adding, setAdding] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
+  const [naturalPreview, setNaturalPreview] = useState(null);
 
   const inputRef = useRef(null);
   const longPressTimer = useRef(null);
@@ -1248,16 +1809,11 @@ function ListScreen({
     setEditingItem(item);
   }
 
-  async function addItem(event) {
-    event.preventDefault();
-
-    const cleanText = newItem.trim();
-
-    if (!cleanText || adding) return;
+  async function saveItem(parsedItem) {
+    if (!parsedItem.text.trim() || adding) return;
 
     try {
       setAdding(true);
-      setNewItem("");
 
       await addDoc(
         collection(
@@ -1269,7 +1825,15 @@ function ListScreen({
           "items",
         ),
         {
-          text: cleanText,
+          text: parsedItem.text.trim(),
+          quantity:
+            parsedItem.quantity === null ||
+            parsedItem.quantity === ""
+              ? null
+              : Number(parsedItem.quantity),
+          quantityUnit: parsedItem.quantityUnit || "",
+          dueAt: parsedItem.dueAt || null,
+          rawInput: parsedItem.rawInput || parsedItem.text.trim(),
           completed: false,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
@@ -1284,14 +1848,36 @@ function ListScreen({
         },
       );
 
+      setNaturalPreview(null);
+      setNewItem("");
       inputRef.current?.focus();
+
+      if (!navigator.onLine) {
+        showToast("Saved offline. It will sync later.");
+      }
     } catch (error) {
       console.error(error);
-      setNewItem(cleanText);
       showToast("Could not add the item.");
     } finally {
       setAdding(false);
     }
+  }
+
+  function handleAddItem(event) {
+    event.preventDefault();
+
+    const cleanText = newItem.trim();
+
+    if (!cleanText || adding) return;
+
+    const parsed = parseNaturalInput(cleanText);
+
+    if (parsed.hasNaturalData) {
+      setNaturalPreview(parsed);
+      return;
+    }
+
+    saveItem(parsed);
   }
 
   async function toggleItem(item) {
@@ -1531,84 +2117,94 @@ function ListScreen({
           </>
         ) : sortedItems.length > 0 ? (
           <AnimatePresence initial={false}>
-            {sortedItems.map((item) => (
-              <motion.article
-                layout
-                key={item.id}
-                className={`item-row ${
-                  item.completed ? "completed" : ""
-                }`}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, x: 18 }}
-                transition={{
-                  layout: {
-                    type: "spring",
-                    stiffness: 420,
-                    damping: 34,
-                  },
-                }}
-              >
-                <motion.button
-                  className="check-button"
-                  type="button"
-                  animate={{
-                    backgroundColor: item.completed
-                      ? "#111111"
-                      : "#ffffff",
-                    borderColor: item.completed
-                      ? "#111111"
-                      : "#cfcfcf",
+            {sortedItems.map((item) => {
+              const metadata = getItemMetadata(item);
+
+              return (
+                <motion.article
+                  layout
+                  key={item.id}
+                  className={`item-row ${
+                    item.completed ? "completed" : ""
+                  }`}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, x: 18 }}
+                  transition={{
+                    layout: {
+                      type: "spring",
+                      stiffness: 420,
+                      damping: 34,
+                    },
                   }}
-                  whileTap={{ scale: 0.8 }}
-                  onClick={() => toggleItem(item)}
                 >
-                  <AnimatePresence>
-                    {item.completed && (
-                      <motion.span
-                        initial={{ scale: 0, rotate: -35 }}
-                        animate={{ scale: 1, rotate: 0 }}
-                        exit={{ scale: 0 }}
-                      >
-                        ✓
-                      </motion.span>
+                  <motion.button
+                    className="check-button"
+                    type="button"
+                    animate={{
+                      backgroundColor: item.completed
+                        ? "#111111"
+                        : "#ffffff",
+                      borderColor: item.completed
+                        ? "#111111"
+                        : "#cfcfcf",
+                    }}
+                    whileTap={{ scale: 0.8 }}
+                    onClick={() => toggleItem(item)}
+                  >
+                    <AnimatePresence>
+                      {item.completed && (
+                        <motion.span
+                          initial={{ scale: 0, rotate: -35 }}
+                          animate={{ scale: 1, rotate: 0 }}
+                          exit={{ scale: 0 }}
+                        >
+                          ✓
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
+                  </motion.button>
+
+                  <button
+                    className="item-text"
+                    type="button"
+                    onPointerDown={(event) =>
+                      startLongPress(event, item)
+                    }
+                    onPointerUp={cancelLongPress}
+                    onPointerCancel={cancelLongPress}
+                    onPointerLeave={cancelLongPress}
+                    onContextMenu={(event) =>
+                      handleContextMenu(event, item)
+                    }
+                    onClick={() => handleItemTap(item)}
+                    onDoubleClick={() => setEditingItem(item)}
+                  >
+                    <span className="item-main-text">{item.text}</span>
+
+                    {metadata && (
+                      <small className="item-metadata">{metadata}</small>
                     )}
-                  </AnimatePresence>
-                </motion.button>
-
-                <button
-                  className="item-text"
-                  type="button"
-                  onPointerDown={(event) => startLongPress(event, item)}
-                  onPointerUp={cancelLongPress}
-                  onPointerCancel={cancelLongPress}
-                  onPointerLeave={cancelLongPress}
-                  onContextMenu={(event) =>
-                    handleContextMenu(event, item)
-                  }
-                  onClick={() => handleItemTap(item)}
-                  onDoubleClick={() => setEditingItem(item)}
-                >
-                  <span>{item.text}</span>
-                </button>
-
-                <div className="item-actions">
-                  <button
-                    type="button"
-                    onClick={() => setEditingItem(item)}
-                  >
-                    Edit
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => removeItem(item)}
-                  >
-                    ×
-                  </button>
-                </div>
-              </motion.article>
-            ))}
+                  <div className="item-actions">
+                    <button
+                      type="button"
+                      onClick={() => setEditingItem(item)}
+                    >
+                      Edit
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => removeItem(item)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                </motion.article>
+              );
+            })}
           </AnimatePresence>
         ) : (
           <motion.div
@@ -1622,12 +2218,12 @@ function ListScreen({
         )}
       </section>
 
-      <form className="add-item-bar" onSubmit={addItem}>
+      <form className="add-item-bar" onSubmit={handleAddItem}>
         <input
           ref={inputRef}
           value={newItem}
-          maxLength={160}
-          placeholder="Add an item"
+          maxLength={200}
+          placeholder="Add an item, date or quantity"
           onChange={(event) => setNewItem(event.target.value)}
         />
 
@@ -1646,6 +2242,24 @@ function ListScreen({
             item={editingItem}
             onClose={() => setEditingItem(null)}
             onSave={(text) => editItem(editingItem, text)}
+          />
+        )}
+
+        {naturalPreview && (
+          <NaturalInputSheet
+            parsedItem={naturalPreview}
+            adding={adding}
+            onClose={() => setNaturalPreview(null)}
+            onConfirm={saveItem}
+            onPlainText={() =>
+              saveItem({
+                ...naturalPreview,
+                text: naturalPreview.rawInput,
+                quantity: null,
+                quantityUnit: "",
+                dueAt: null,
+              })
+            }
           />
         )}
       </AnimatePresence>
@@ -1723,7 +2337,9 @@ function SearchSheet({
         const listMatches = normalize(list.title).includes(term);
 
         const matchingItems = (itemMap[list.id] || []).filter((item) =>
-          normalize(item.text).includes(term),
+          normalize(
+            `${item.text} ${item.rawInput || ""}`,
+          ).includes(term),
         );
 
         if (!listMatches && matchingItems.length === 0) {
@@ -1799,6 +2415,198 @@ function SearchSheet({
 /* -------------------------------------------------------------------------- */
 /* Sheets                                                                     */
 /* -------------------------------------------------------------------------- */
+
+function NaturalInputSheet({
+  parsedItem,
+  adding,
+  onClose,
+  onConfirm,
+  onPlainText,
+}) {
+  const [text, setText] = useState(parsedItem.text);
+  const [quantity, setQuantity] = useState(
+    parsedItem.quantity ?? "",
+  );
+  const [quantityUnit, setQuantityUnit] = useState(
+    parsedItem.quantityUnit || "",
+  );
+  const [dateValue, setDateValue] = useState(
+    formatDateForInput(parsedItem.dueAt),
+  );
+  const [timeValue, setTimeValue] = useState(
+    formatTimeForInput(parsedItem.dueAt) || "12:00",
+  );
+  const [validationMessage, setValidationMessage] = useState(
+    parsedItem.warning || "",
+  );
+
+  const previewDueAt = combineLocalDateAndTime(
+    dateValue,
+    timeValue,
+  );
+  const dueLabel = formatDueDate(previewDueAt);
+
+  function submitParsedItem(event) {
+    event.preventDefault();
+
+    const dueAt = combineLocalDateAndTime(
+      dateValue,
+      timeValue,
+    );
+
+    if (dateValue && !dueAt) {
+      setValidationMessage("Choose a valid date and time.");
+      return;
+    }
+
+    const numericQuantity =
+      quantity === "" ? null : Number(quantity);
+
+    if (
+      numericQuantity !== null &&
+      (!Number.isFinite(numericQuantity) || numericQuantity < 0)
+    ) {
+      setValidationMessage("Quantity must be zero or greater.");
+      return;
+    }
+
+    setValidationMessage("");
+
+    onConfirm({
+      ...parsedItem,
+      text,
+      quantity: numericQuantity,
+      quantityUnit: quantityUnit.trim(),
+      dueAt,
+    });
+  }
+
+  return (
+    <Sheet onClose={onClose}>
+      <form
+        className="sheet-content natural-sheet"
+        onSubmit={submitParsedItem}
+      >
+        <div className="sheet-handle" />
+
+        <header className="sheet-header">
+          <div>
+            <h2>Confirm item</h2>
+            <p className="sheet-subtitle">
+              Review what Lyst understood before saving.
+            </p>
+          </div>
+
+          <button type="button" onClick={onClose}>
+            Cancel
+          </button>
+        </header>
+
+        <label className="natural-field">
+          <span>Item</span>
+
+          <input
+            className="sheet-input"
+            autoFocus
+            value={text}
+            maxLength={160}
+            onChange={(event) => setText(event.target.value)}
+          />
+        </label>
+
+        <div className="natural-grid">
+          <label className="natural-field">
+            <span>Quantity</span>
+
+            <input
+              className="sheet-input"
+              type="number"
+              min="0"
+              step="any"
+              inputMode="decimal"
+              value={quantity}
+              placeholder="None"
+              onChange={(event) => setQuantity(event.target.value)}
+            />
+          </label>
+
+          <label className="natural-field">
+            <span>Unit</span>
+
+            <input
+              className="sheet-input"
+              value={quantityUnit}
+              placeholder="Optional"
+              onChange={(event) =>
+                setQuantityUnit(event.target.value)
+              }
+            />
+          </label>
+        </div>
+
+        <div className="natural-grid">
+          <label className="natural-field">
+            <span>Date</span>
+
+            <input
+              className="sheet-input"
+              type="date"
+              value={dateValue}
+              onChange={(event) => {
+                setDateValue(event.target.value);
+
+                if (!event.target.value) {
+                  setValidationMessage("");
+                }
+              }}
+            />
+          </label>
+
+          <label className="natural-field">
+            <span>Time</span>
+
+            <input
+              className="sheet-input"
+              type="time"
+              value={timeValue}
+              disabled={!dateValue}
+              onChange={(event) => setTimeValue(event.target.value)}
+            />
+          </label>
+        </div>
+
+        {dueLabel && (
+          <div className="parsed-date">
+            <span>Due</span>
+            <strong>{dueLabel}</strong>
+          </div>
+        )}
+
+        {validationMessage && (
+          <p className="natural-warning">{validationMessage}</p>
+        )}
+
+        <motion.button
+          className="primary-button"
+          type="submit"
+          disabled={!text.trim() || adding}
+          whileTap={{ scale: 0.975 }}
+        >
+          {adding ? "Adding..." : "Add item"}
+        </motion.button>
+
+        <button
+          className="plain-text-button"
+          type="button"
+          disabled={adding}
+          onClick={onPlainText}
+        >
+          Add original text without parsing
+        </button>
+      </form>
+    </Sheet>
+  );
+}
 
 function NewListSheet({ onClose, onCreate }) {
   const [title, setTitle] = useState("");
@@ -2590,9 +3398,12 @@ const styles = `
   }
 
   .item-text {
+    display: flex;
     min-width: 0;
     flex: 1;
-    padding: 15px 0;
+    padding: 11px 0;
+    flex-direction: column;
+    gap: 3px;
     text-align: left;
     border: 0;
     background: transparent;
@@ -2602,15 +3413,18 @@ const styles = `
     user-select: none;
   }
 
-  .item-text span {
+  .item-main-text {
     position: relative;
+    width: fit-content;
+    max-width: 100%;
     font-size: 0.98rem;
+    line-height: 1.3;
     -webkit-touch-callout: none;
     -webkit-user-select: none;
     user-select: none;
   }
 
-  .item-text span::after {
+  .item-main-text::after {
     position: absolute;
     top: 51%;
     left: 0;
@@ -2623,11 +3437,19 @@ const styles = `
     transition: transform 250ms ease;
   }
 
-  .item-row.completed .item-text span {
+  .item-metadata {
+    color: #888888;
+    font-size: 0.7rem;
+    font-weight: 520;
+    line-height: 1.35;
+  }
+
+  .item-row.completed .item-main-text,
+  .item-row.completed .item-metadata {
     color: #999999;
   }
 
-  .item-row.completed .item-text span::after {
+  .item-row.completed .item-main-text::after {
     transform: scaleX(1);
   }
 
@@ -2675,7 +3497,7 @@ const styles = `
     flex: 1;
     border: 0;
     outline: 0;
-    font-size: 0.94rem;
+    font-size: 0.9rem;
   }
 
   .add-item-bar button {
@@ -2706,6 +3528,8 @@ const styles = `
 
   .sheet {
     width: min(100%, 460px);
+    max-height: calc(100dvh - 16px);
+    overflow-y: auto;
     border: 1px solid #e4e4e4;
     border-radius: 23px;
     background: #ffffff;
@@ -2728,9 +3552,19 @@ const styles = `
     margin-bottom: 17px;
   }
 
+  .sheet-header > div {
+    min-width: 0;
+  }
+
   .sheet-header h2 {
     margin: 0;
     font-size: 1.35rem;
+  }
+
+  .sheet-subtitle {
+    margin: 4px 0 0;
+    color: #777777;
+    font-size: 0.73rem;
   }
 
   .sheet-header button {
@@ -2753,6 +3587,65 @@ const styles = `
 
   .sheet-input {
     margin-bottom: 12px;
+  }
+
+  .natural-field {
+    display: block;
+  }
+
+  .natural-field > span {
+    display: block;
+    margin: 0 0 6px 2px;
+    color: #777777;
+    font-size: 0.7rem;
+    font-weight: 650;
+  }
+
+  .natural-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 9px;
+  }
+
+  .parsed-date {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 13px;
+    padding: 12px 2px;
+    border-top: 1px solid #eeeeee;
+    border-bottom: 1px solid #eeeeee;
+  }
+
+  .parsed-date span {
+    color: #777777;
+    font-size: 0.74rem;
+  }
+
+  .parsed-date strong {
+    font-size: 0.79rem;
+  }
+
+  .natural-warning {
+    margin: -2px 0 13px;
+    color: #b42318;
+    font-size: 0.73rem;
+    line-height: 1.4;
+  }
+
+  .plain-text-button {
+    width: 100%;
+    margin-top: 13px;
+    padding: 5px;
+    border: 0;
+    color: #666666;
+    background: transparent;
+    font-size: 0.7rem;
+    font-weight: 650;
+  }
+
+  .plain-text-button:disabled {
+    opacity: 0.4;
   }
 
   .archive-row {
