@@ -1258,70 +1258,181 @@ function AuthScreen({ showToast }) {
 
   return (
     <main className="auth-page">
+      <motion.div
+        className="auth-orbit auth-orbit-one"
+        aria-hidden="true"
+        animate={{
+          y: [0, -8, 0],
+          rotate: [0, 7, 0],
+        }}
+        transition={{
+          duration: 5.8,
+          repeat: Infinity,
+          ease: "easeInOut",
+        }}
+      >
+        🌸
+      </motion.div>
+
+      <motion.div
+        className="auth-orbit auth-orbit-two"
+        aria-hidden="true"
+        animate={{
+          y: [0, 7, 0],
+          rotate: [0, -8, 0],
+        }}
+        transition={{
+          duration: 6.6,
+          repeat: Infinity,
+          ease: "easeInOut",
+          delay: 0.4,
+        }}
+      >
+        ✨
+      </motion.div>
+
       <motion.section
         className="auth-panel"
-        initial={{ opacity: 0, y: 14, scale: 0.98 }}
+        initial={{ opacity: 0, y: 18, scale: 0.975 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{
           type: "spring",
-          stiffness: 300,
-          damping: 28,
+          stiffness: 290,
+          damping: 27,
         }}
       >
-        <div className="auth-name">Lyst</div>
+        <div className="auth-brand-row">
+          <motion.div
+            className="auth-badge"
+            initial={{ rotate: -8, scale: 0.9 }}
+            animate={{ rotate: 0, scale: 1 }}
+            transition={{
+              type: "spring",
+              stiffness: 420,
+              damping: 24,
+            }}
+          >
+            📝
+          </motion.div>
+
+          <div>
+            <div className="auth-name">Lyst</div>
+            <div className="auth-kicker">
+              little lists, less brain clutter ✨
+            </div>
+          </div>
+        </div>
 
         <AnimatePresence mode="wait">
           <motion.div
             key={mode}
             className="auth-heading"
-            initial={{ opacity: 0, y: 6 }}
+            initial={{ opacity: 0, y: 7 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
+            exit={{ opacity: 0, y: -7 }}
+            transition={{
+              type: "spring",
+              stiffness: 360,
+              damping: 29,
+            }}
           >
-            <h1>{mode === "signin" ? "Sign in" : "Create account"}</h1>
+            <h1>
+              {mode === "signin" ? "Welcome back 🌷" : "Make it yours 🌈"}
+            </h1>
 
             <p>
               {mode === "signin"
-                ? "Continue to your lists."
-                : "Keep everything you need to remember."}
+                ? "Your lists are right where you left them."
+                : "A tiny pastel home for everything you want to remember."}
             </p>
           </motion.div>
         </AnimatePresence>
+
+        <div className="auth-mood-strip" aria-hidden="true">
+          <motion.span
+            whileHover={{ y: -3, rotate: -5 }}
+            transition={{ type: "spring", stiffness: 500, damping: 25 }}
+          >
+            🍓
+          </motion.span>
+
+          <motion.span
+            whileHover={{ y: -3, rotate: 5 }}
+            transition={{ type: "spring", stiffness: 500, damping: 25 }}
+          >
+            🫧
+          </motion.span>
+
+          <motion.span
+            whileHover={{ y: -3, rotate: -4 }}
+            transition={{ type: "spring", stiffness: 500, damping: 25 }}
+          >
+            ☁️
+          </motion.span>
+
+          <motion.span
+            whileHover={{ y: -3, rotate: 4 }}
+            transition={{ type: "spring", stiffness: 500, damping: 25 }}
+          >
+            🍋
+          </motion.span>
+        </div>
 
         <motion.button
           className="google-button"
           type="button"
           disabled={working}
-          whileTap={{ scale: 0.975 }}
+          whileHover={{ y: -2, scale: 1.008 }}
+          whileTap={{ scale: 0.972 }}
+          transition={{
+            type: "spring",
+            stiffness: 470,
+            damping: 28,
+          }}
           onClick={handleGoogle}
         >
           <span className="google-mark">G</span>
           Continue with Google
+          <span className="google-sparkle" aria-hidden="true">
+            ✨
+          </span>
         </motion.button>
 
         <div className="divider">
-          <span>or</span>
+          <span>or use email</span>
         </div>
 
         <form className="auth-form" onSubmit={handleSubmit}>
-          <input
-            type="email"
-            value={email}
-            autoComplete="email"
-            placeholder="Email"
-            onChange={(event) => setEmail(event.target.value)}
-          />
+          <label className="auth-input-wrap">
+            <span className="auth-input-emoji" aria-hidden="true">
+              💌
+            </span>
 
-          <input
-            type="password"
-            value={password}
-            minLength={6}
-            autoComplete={
-              mode === "signup" ? "new-password" : "current-password"
-            }
-            placeholder="Password"
-            onChange={(event) => setPassword(event.target.value)}
-          />
+            <input
+              type="email"
+              value={email}
+              autoComplete="email"
+              placeholder="Email"
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          </label>
+
+          <label className="auth-input-wrap">
+            <span className="auth-input-emoji" aria-hidden="true">
+              🔐
+            </span>
+
+            <input
+              type="password"
+              value={password}
+              minLength={6}
+              autoComplete={
+                mode === "signup" ? "new-password" : "current-password"
+              }
+              placeholder="Password"
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </label>
 
           {mode === "signin" && (
             <button
@@ -1329,21 +1440,27 @@ function AuthScreen({ showToast }) {
               type="button"
               onClick={handlePasswordReset}
             >
-              Forgot password?
+              Forgot password? 🪄
             </button>
           )}
 
           <motion.button
-            className="primary-button"
+            className="primary-button auth-primary-button"
             type="submit"
             disabled={working}
-            whileTap={{ scale: 0.975 }}
+            whileHover={{ y: -2, scale: 1.006 }}
+            whileTap={{ scale: 0.974 }}
+            transition={{
+              type: "spring",
+              stiffness: 470,
+              damping: 28,
+            }}
           >
             {working
-              ? "Please wait"
+              ? "One sec... ✨"
               : mode === "signup"
-                ? "Create account"
-                : "Sign in"}
+                ? "Create my Lyst 🌼"
+                : "Open my Lyst 💫"}
           </motion.button>
         </form>
 
@@ -1357,8 +1474,8 @@ function AuthScreen({ showToast }) {
           }}
         >
           {mode === "signin"
-            ? "Create an account"
-            : "Already have an account?"}
+            ? "New here? Create an account 🌱"
+            : "Already have an account? Sign in 🌙"}
         </button>
       </motion.section>
     </main>
@@ -3122,23 +3239,124 @@ function OfflineExpiredScreen({
 }
 
 function LoadingScreen({ reduceMotion }) {
+  const dots = [
+    { emoji: "🌸", className: "loading-dot dot-one" },
+    { emoji: "🫧", className: "loading-dot dot-two" },
+    { emoji: "⭐", className: "loading-dot dot-three" },
+    { emoji: "🍬", className: "loading-dot dot-four" },
+  ];
+
   return (
     <main className="loading-page">
-      <motion.strong
-        animate={
-          reduceMotion
-            ? {}
-            : {
-                opacity: [0.35, 1, 0.35],
-              }
-        }
+      <motion.div
+        className="loading-card"
+        initial={{ opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
         transition={{
-          duration: 1.25,
-          repeat: Infinity,
+          type: "spring",
+          stiffness: 300,
+          damping: 27,
         }}
       >
-        Lyst
-      </motion.strong>
+        <div className="loading-scene" aria-hidden="true">
+          {dots.map((dot, index) => (
+            <motion.span
+              key={dot.className}
+              className={dot.className}
+              animate={
+                reduceMotion
+                  ? {}
+                  : {
+                      y: [0, -10 - index * 2, 0],
+                      rotate: [0, index % 2 === 0 ? 8 : -8, 0],
+                      scale: [1, 1.08, 1],
+                    }
+              }
+              transition={{
+                duration: 1.8 + index * 0.18,
+                repeat: Infinity,
+                ease: "easeInOut",
+                delay: index * 0.12,
+              }}
+            >
+              {dot.emoji}
+            </motion.span>
+          ))}
+
+          <motion.div
+            className="loading-logo-bubble"
+            animate={
+              reduceMotion
+                ? {}
+                : {
+                    rotate: [0, 2, -2, 0],
+                    scale: [1, 1.025, 1],
+                  }
+            }
+            transition={{
+              duration: 2.2,
+              repeat: Infinity,
+              ease: "easeInOut",
+            }}
+          >
+            L
+          </motion.div>
+        </div>
+
+        <motion.strong
+          className="loading-word"
+          animate={
+            reduceMotion
+              ? {}
+              : {
+                  letterSpacing: ["-0.06em", "-0.02em", "-0.06em"],
+                  opacity: [0.72, 1, 0.72],
+                }
+          }
+          transition={{
+            duration: 2,
+            repeat: Infinity,
+            ease: "easeInOut",
+          }}
+        >
+          Lyst
+        </motion.strong>
+
+        <motion.p
+          className="loading-caption"
+          animate={
+            reduceMotion
+              ? {}
+              : {
+                  opacity: [0.48, 0.9, 0.48],
+                }
+          }
+          transition={{
+            duration: 1.7,
+            repeat: Infinity,
+            ease: "easeInOut",
+          }}
+        >
+          getting your little world ready ✨
+        </motion.p>
+
+        <div className="loading-bar" aria-hidden="true">
+          <motion.span
+            animate={
+              reduceMotion
+                ? { x: 0 }
+                : {
+                    x: ["-105%", "230%"],
+                  }
+            }
+            transition={{
+              duration: 1.7,
+              repeat: Infinity,
+              ease: "easeInOut",
+            }}
+          />
+        </div>
+      </motion.div>
     </main>
   );
 }
@@ -4140,7 +4358,7 @@ const styles = `
     min-height: 100vh;
     min-height: 100dvh;
     padding: 16px;
-    background: #FFFDFC;
+    background: #FFFFFF;
   }
 
   .auth-page,
@@ -4150,65 +4368,226 @@ const styles = `
     place-items: center;
   }
 
+  .auth-page {
+    position: relative;
+    overflow: hidden;
+    padding:
+      max(18px, env(safe-area-inset-top))
+      16px
+      max(18px, env(safe-area-inset-bottom));
+  }
+
+  .auth-page::before,
+  .auth-page::after {
+    position: absolute;
+    z-index: 0;
+    width: 220px;
+    height: 220px;
+    border-radius: 50%;
+    content: "";
+    filter: blur(2px);
+    pointer-events: none;
+  }
+
+  .auth-page::before {
+    top: -86px;
+    left: -84px;
+    background: rgba(221, 211, 246, 0.38);
+  }
+
+  .auth-page::after {
+    right: -82px;
+    bottom: -98px;
+    background: rgba(207, 234, 223, 0.42);
+  }
+
+  .auth-orbit {
+    position: fixed;
+    z-index: 1;
+    display: grid;
+    width: 46px;
+    height: 46px;
+    place-items: center;
+    border: 1px solid rgba(223, 214, 235, 0.85);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.86);
+    box-shadow: 0 10px 28px rgba(77, 64, 92, 0.09);
+    font-size: 1.25rem;
+    pointer-events: none;
+    backdrop-filter: blur(10px);
+  }
+
+  .auth-orbit-one {
+    top: 13%;
+    left: max(7%, calc(50% - 230px));
+  }
+
+  .auth-orbit-two {
+    right: max(7%, calc(50% - 230px));
+    bottom: 15%;
+  }
+
   .auth-panel,
   .offline-expired-panel {
-    width: min(100%, 330px);
-    padding: 22px 19px 19px;
-    border: 1px solid #EAE3EE;
-    border-radius: 20px;
-    background: #FFFDFC;
+    position: relative;
+    z-index: 2;
+    width: min(100%, 350px);
+    padding: 20px 19px 19px;
+    border: 1px solid #E8E2ED;
+    border-radius: 24px;
+    background: #FFFFFF;
+    box-shadow:
+      0 18px 55px rgba(78, 65, 92, 0.11),
+      0 2px 10px rgba(78, 65, 92, 0.04);
+  }
+
+  .auth-panel::before {
+    position: absolute;
+    top: -1px;
+    right: 32px;
+    left: 32px;
+    height: 3px;
+    border-radius: 0 0 999px 999px;
+    content: "";
+    background: linear-gradient(
+      90deg,
+      var(--lavender),
+      var(--mint),
+      var(--peach),
+      var(--sky),
+      var(--rose)
+    );
+  }
+
+  .auth-brand-row {
+    display: flex;
+    gap: 11px;
+    align-items: center;
+    margin-bottom: 22px;
+  }
+
+  .auth-badge {
+    display: grid;
+    width: 44px;
+    height: 44px;
+    flex: 0 0 auto;
+    place-items: center;
+    border: 1px solid #DDD3EE;
+    border-radius: 15px;
+    background: var(--lavender-soft);
+    box-shadow: 0 7px 18px rgba(96, 80, 119, 0.08);
+    font-size: 1.2rem;
   }
 
   .auth-name {
-    margin-bottom: 23px;
-    font-size: 1.4rem;
-    font-weight: 780;
+    margin: 0;
+    font-size: 1.42rem;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.055em;
+  }
+
+  .auth-kicker {
+    margin-top: 5px;
+    color: var(--muted);
+    font-size: 0.66rem;
+    font-weight: 620;
   }
 
   .auth-heading {
-    margin-bottom: 18px;
+    margin-bottom: 15px;
   }
 
   .auth-heading h1 {
-    margin-bottom: 5px;
-    font-size: 1.65rem;
+    margin-bottom: 6px;
+    font-size: 1.66rem;
+    line-height: 1.1;
+    letter-spacing: -0.045em;
   }
 
   .auth-heading p {
     margin: 0;
-    color: #766F80;
-    font-size: 0.82rem;
+    color: var(--muted);
+    font-size: 0.81rem;
+    line-height: 1.48;
+  }
+
+  .auth-mood-strip {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+
+  .auth-mood-strip span {
+    display: grid;
+    width: 32px;
+    height: 32px;
+    place-items: center;
+    border: 1px solid #ECE6F0;
+    border-radius: 11px;
+    background: #FFFFFF;
+    box-shadow: 0 4px 10px rgba(80, 68, 93, 0.045);
+    font-size: 0.9rem;
+  }
+
+  .auth-mood-strip span:nth-child(1) {
+    background: var(--rose-soft);
+  }
+
+  .auth-mood-strip span:nth-child(2) {
+    background: var(--sky-soft);
+  }
+
+  .auth-mood-strip span:nth-child(3) {
+    background: var(--lavender-soft);
+  }
+
+  .auth-mood-strip span:nth-child(4) {
+    background: var(--butter-soft);
   }
 
   .google-button {
     display: flex;
     width: 100%;
-    min-height: 44px;
+    min-height: 46px;
     gap: 9px;
     align-items: center;
     justify-content: center;
-    border: 1px solid #E1D8E6;
-    border-radius: 12px;
-    background: #FFFDFC;
+    border: 1px solid #D8E7DE;
+    border-radius: 13px;
+    background: var(--mint-soft);
+    box-shadow: 0 6px 16px rgba(70, 112, 91, 0.07);
+    font-size: 0.8rem;
+    font-weight: 690;
+  }
+
+  .google-button:disabled {
+    opacity: 0.55;
   }
 
   .google-mark {
     display: grid;
-    width: 19px;
-    height: 19px;
+    width: 21px;
+    height: 21px;
     place-items: center;
-    border: 1px solid #d8d8d8;
+    border: 1px solid #CCDED4;
     border-radius: 50%;
+    background: #FFFFFF;
     font-size: 0.68rem;
-    font-weight: 800;
+    font-weight: 850;
+  }
+
+  .google-sparkle {
+    margin-left: 2px;
+    font-size: 0.76rem;
   }
 
   .divider {
     display: flex;
     align-items: center;
     margin: 15px 0;
-    color: #9991A2;
-    font-size: 0.66rem;
+    color: #9A93A3;
+    font-size: 0.64rem;
   }
 
   .divider::before,
@@ -4216,7 +4595,7 @@ const styles = `
     height: 1px;
     flex: 1;
     content: "";
-    background: #EAE4EF;
+    background: #EEE8F1;
   }
 
   .divider span {
@@ -4228,27 +4607,206 @@ const styles = `
     gap: 9px;
   }
 
+  .auth-input-wrap {
+    position: relative;
+    display: block;
+  }
+
+  .auth-input-wrap input {
+    padding-left: 42px;
+  }
+
+  .auth-input-emoji {
+    position: absolute;
+    z-index: 1;
+    top: 50%;
+    left: 13px;
+    transform: translateY(-50%);
+    font-size: 0.9rem;
+    pointer-events: none;
+  }
+
+  .auth-form input {
+    background: #FFFFFF;
+  }
+
+  .auth-form input:focus {
+    border-color: #D2C5EE;
+    background: var(--lavender-soft);
+    box-shadow: 0 0 0 4px rgba(221, 211, 246, 0.38);
+  }
+
+  .auth-primary-button {
+    margin-top: 2px;
+    background: var(--peach);
+    box-shadow: 0 8px 19px rgba(142, 93, 69, 0.10);
+  }
+
   .forgot-button,
   .switch-button,
   .offline-sign-out {
     border: 0;
-    color: #6B6475;
+    color: #6F6879;
     background: transparent;
-    font-size: 0.71rem;
+    font-size: 0.7rem;
   }
 
   .forgot-button {
     justify-self: end;
+    padding: 2px 2px 1px 8px;
   }
 
   .switch-button {
     width: 100%;
     margin-top: 15px;
+    padding: 5px 0;
+    font-weight: 650;
   }
 
   .loading-page {
+    position: relative;
     display: grid;
+    overflow: hidden;
     place-items: center;
+    background: #FFFFFF;
+  }
+
+  .loading-page::before,
+  .loading-page::after {
+    position: absolute;
+    width: 230px;
+    height: 230px;
+    border-radius: 50%;
+    content: "";
+    opacity: 0.42;
+    filter: blur(1px);
+  }
+
+  .loading-page::before {
+    top: -110px;
+    right: -90px;
+    background: var(--sky);
+  }
+
+  .loading-page::after {
+    bottom: -105px;
+    left: -100px;
+    background: var(--peach);
+  }
+
+  .loading-card {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    width: min(100%, 290px);
+    place-items: center;
+    padding: 26px 22px 24px;
+    border: 1px solid #EAE4EF;
+    border-radius: 27px;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 20px 60px rgba(78, 65, 92, 0.10);
+    backdrop-filter: blur(12px);
+  }
+
+  .loading-scene {
+    position: relative;
+    width: 128px;
+    height: 104px;
+    margin-bottom: 3px;
+  }
+
+  .loading-logo-bubble {
+    position: absolute;
+    top: 23px;
+    left: 50%;
+    display: grid;
+    width: 58px;
+    height: 58px;
+    place-items: center;
+    transform: translateX(-50%);
+    border: 1px solid #D4C7EE;
+    border-radius: 20px;
+    color: #4B435D;
+    background: var(--lavender);
+    box-shadow:
+      0 10px 25px rgba(94, 78, 119, 0.14),
+      inset 0 1px 0 rgba(255, 255, 255, 0.65);
+    font-size: 1.45rem;
+    font-weight: 850;
+  }
+
+  .loading-dot {
+    position: absolute;
+    display: grid;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border: 1px solid #ECE6F1;
+    border-radius: 12px;
+    background: #FFFFFF;
+    box-shadow: 0 6px 15px rgba(80, 67, 94, 0.07);
+    font-size: 0.88rem;
+  }
+
+  .dot-one {
+    top: 0;
+    left: 5px;
+    background: var(--rose-soft);
+  }
+
+  .dot-two {
+    top: 8px;
+    right: 3px;
+    background: var(--sky-soft);
+  }
+
+  .dot-three {
+    bottom: 0;
+    left: 12px;
+    background: var(--butter-soft);
+  }
+
+  .dot-four {
+    right: 9px;
+    bottom: 2px;
+    background: var(--peach-soft);
+  }
+
+  .loading-word {
+    margin-top: 1px;
+    font-size: 1.58rem;
+    font-weight: 820;
+    line-height: 1;
+    letter-spacing: -0.055em;
+  }
+
+  .loading-caption {
+    margin: 8px 0 15px;
+    color: var(--muted);
+    text-align: center;
+    font-size: 0.69rem;
+    line-height: 1.4;
+  }
+
+  .loading-bar {
+    width: 118px;
+    height: 5px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #F0EBF3;
+  }
+
+  .loading-bar span {
+    display: block;
+    width: 48px;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(
+      90deg,
+      var(--mint),
+      var(--lavender),
+      var(--peach)
+    );
   }
 
   .toast,
