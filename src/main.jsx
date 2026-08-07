@@ -2,26 +2,119 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App.jsx";
 
-let refreshing = false;
+let waitingRegistration = null;
+let updateVisible = false;
 
-function showUpdatePrompt(registration) {
-  const waitingWorker = registration.waiting;
+function dispatchUpdateAvailable(registration = null) {
+  if (registration) {
+    waitingRegistration = registration;
+  }
 
-  if (!waitingWorker) return;
+  if (updateVisible) return;
 
-  const shouldUpdate = window.confirm(
-    "A newer version of Lyst is available. Update now?",
+  updateVisible = true;
+  window.__LYST_UPDATE_AVAILABLE__ = true;
+
+  window.dispatchEvent(
+    new CustomEvent("lyst:update-available"),
+  );
+}
+
+function getCurrentBundleSignature() {
+  const scripts = Array.from(
+    document.querySelectorAll('script[type="module"][src]'),
   );
 
-  if (shouldUpdate) {
-    waitingWorker.postMessage({
-      type: "SKIP_WAITING",
-    });
+  return (
+    scripts
+      .map((script) => script.getAttribute("src") || "")
+      .find((src) => src.includes("/assets/")) || null
+  );
+}
+
+function getRemoteBundleSignature(html) {
+  const normalOrder = html.match(
+    /<script[^>]+type=["']module["'][^>]+src=["']([^"']+\/assets\/[^"']+\.js)["']/i,
+  );
+
+  if (normalOrder?.[1]) return normalOrder[1];
+
+  const reverseOrder = html.match(
+    /<script[^>]+src=["']([^"']+\/assets\/[^"']+\.js)["'][^>]+type=["']module["']/i,
+  );
+
+  return reverseOrder?.[1] || null;
+}
+
+async function checkPublishedVersion() {
+  if (!navigator.onLine) return;
+
+  try {
+    const response = await fetch(
+      `/index.html?lyst-version-check=${Date.now()}`,
+      {
+        cache: "no-store",
+        headers: {
+          "Cache-Control": "no-cache",
+        },
+      },
+    );
+
+    if (!response.ok) return;
+
+    const html = await response.text();
+    const remoteSignature = getRemoteBundleSignature(html);
+    const currentSignature = getCurrentBundleSignature();
+
+    if (
+      currentSignature &&
+      remoteSignature &&
+      currentSignature !== remoteSignature
+    ) {
+      dispatchUpdateAvailable();
+    }
+  } catch (error) {
+    console.warn("Lyst version check failed:", error);
   }
 }
 
+async function applyUpdate() {
+  const registration =
+    waitingRegistration ||
+    (await navigator.serviceWorker?.getRegistration?.("/"));
+
+  if (registration?.waiting) {
+    registration.waiting.postMessage({
+      type: "SKIP_WAITING",
+    });
+
+    await new Promise((resolve) => {
+      const timeout = window.setTimeout(resolve, 1800);
+
+      navigator.serviceWorker.addEventListener(
+        "controllerchange",
+        () => {
+          window.clearTimeout(timeout);
+          resolve();
+        },
+        { once: true },
+      );
+    });
+  }
+
+  const url = new URL(window.location.href);
+  url.searchParams.set("updated", Date.now().toString());
+  window.location.replace(url.toString());
+}
+
+window.__LYST_UPDATE_AVAILABLE__ = false;
+window.__LYST_APPLY_UPDATE__ = applyUpdate;
+
 async function registerServiceWorker() {
-  if (!("serviceWorker" in navigator)) return;
+  if (!("serviceWorker" in navigator)) {
+    await checkPublishedVersion();
+    return;
+  }
 
   try {
     const registration = await navigator.serviceWorker.register("/sw.js", {
@@ -30,7 +123,7 @@ async function registerServiceWorker() {
     });
 
     if (registration.waiting) {
-      showUpdatePrompt(registration);
+      dispatchUpdateAvailable(registration);
     }
 
     registration.addEventListener("updatefound", () => {
@@ -43,25 +136,35 @@ async function registerServiceWorker() {
           installingWorker.state === "installed" &&
           navigator.serviceWorker.controller
         ) {
-          showUpdatePrompt(registration);
+          dispatchUpdateAvailable(registration);
         }
       });
-    });
-
-    navigator.serviceWorker.addEventListener("controllerchange", () => {
-      if (refreshing) return;
-
-      refreshing = true;
-      window.location.reload();
     });
 
     window.setInterval(() => {
       registration.update().catch((error) => {
         console.warn("Service worker update check failed:", error);
       });
-    }, 60 * 60 * 1000);
+
+      checkPublishedVersion();
+    }, 5 * 60 * 1000);
+
+    window.addEventListener("focus", () => {
+      registration.update().catch(() => {});
+      checkPublishedVersion();
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        registration.update().catch(() => {});
+        checkPublishedVersion();
+      }
+    });
+
+    await checkPublishedVersion();
   } catch (error) {
     console.error("Service worker registration failed:", error);
+    await checkPublishedVersion();
   }
 }
 

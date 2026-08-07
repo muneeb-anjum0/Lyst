@@ -137,129 +137,69 @@ async function clearOfflineAccess() {
 const DEFAULT_DATE_ONLY_HOUR = 12;
 const DEFAULT_DATE_ONLY_MINUTE = 0;
 
-const QUANTITY_UNITS = [
-  "bottles",
-  "bottle",
-  "packs",
-  "pack",
-  "boxes",
-  "box",
-  "bags",
-  "bag",
-  "pieces",
-  "piece",
-  "items",
-  "item",
-  "pairs",
-  "pair",
-  "sets",
-  "set",
-  "cans",
-  "can",
-  "jars",
-  "jar",
-  "tins",
-  "tin",
-  "rolls",
-  "roll",
-  "sheets",
-  "sheet",
-  "tabs",
-  "tablets",
-  "capsules",
-  "capsule",
-  "cups",
-  "cup",
-  "tablespoons",
-  "tablespoon",
-  "tbsp",
-  "teaspoons",
-  "teaspoon",
-  "tsp",
-  "ounces",
-  "ounce",
-  "oz",
-  "pounds",
-  "pound",
-  "lbs",
-  "lb",
-  "kilograms",
-  "kilogram",
-  "kgs",
-  "kg",
-  "grams",
-  "gram",
-  "g",
-  "milligrams",
-  "milligram",
-  "mg",
-  "litres",
-  "litre",
-  "liters",
-  "liter",
-  "millilitres",
-  "millilitre",
-  "milliliters",
-  "milliliter",
-  "ml",
-  "l",
-  "metres",
-  "metre",
-  "meters",
-  "meter",
-  "centimetres",
-  "centimetre",
-  "centimeters",
-  "centimeter",
-  "cm",
-  "dozens",
-  "dozen",
-];
+const DAYPART_TIMES = {
+  morning: { hours: 9, minutes: 0 },
+  noon: { hours: 12, minutes: 0 },
+  midday: { hours: 12, minutes: 0 },
+  afternoon: { hours: 15, minutes: 0 },
+  evening: { hours: 18, minutes: 0 },
+  tonight: { hours: 20, minutes: 0 },
+  night: { hours: 21, minutes: 0 },
+  midnight: { hours: 0, minutes: 0 },
+  eod: { hours: 17, minutes: 0 },
+  cob: { hours: 17, minutes: 0 },
+};
+
+const QUANTITY_UNIT_ALIASES = {
+  bottle: "bottle", bottles: "bottle",
+  pack: "pack", packs: "pack",
+  box: "box", boxes: "box",
+  bag: "bag", bags: "bag",
+  piece: "piece", pieces: "piece",
+  item: "item", items: "item",
+  pair: "pair", pairs: "pair",
+  set: "set", sets: "set",
+  can: "can", cans: "can",
+  jar: "jar", jars: "jar",
+  tin: "tin", tins: "tin",
+  roll: "roll", rolls: "roll",
+  sheet: "sheet", sheets: "sheet",
+  tablet: "tablet", tablets: "tablet",
+  capsule: "capsule", capsules: "capsule",
+  cup: "cup", cups: "cup",
+  tablespoon: "tbsp", tablespoons: "tbsp", tbsp: "tbsp",
+  teaspoon: "tsp", teaspoons: "tsp", tsp: "tsp",
+  ounce: "oz", ounces: "oz", oz: "oz",
+  pound: "lb", pounds: "lb", lb: "lb", lbs: "lb",
+  kilogram: "kg", kilograms: "kg", kg: "kg", kgs: "kg",
+  gram: "g", grams: "g", g: "g",
+  milligram: "mg", milligrams: "mg", mg: "mg",
+  litre: "L", litres: "L", liter: "L", liters: "L", l: "L",
+  millilitre: "ml", millilitres: "ml", milliliter: "ml", milliliters: "ml", ml: "ml",
+  metre: "m", metres: "m", meter: "m", meters: "m", m: "m",
+  centimetre: "cm", centimetres: "cm", centimeter: "cm", centimeters: "cm", cm: "cm",
+  dozen: "dozen", dozens: "dozen",
+};
+
+const QUANTITY_UNITS = Object.keys(QUANTITY_UNIT_ALIASES);
 
 const NUMBER_WORDS = {
-  one: 1,
-  two: 2,
-  three: 3,
-  four: 4,
-  five: 5,
-  six: 6,
-  seven: 7,
-  eight: 8,
-  nine: 9,
-  ten: 10,
-  eleven: 11,
-  twelve: 12,
-  thirteen: 13,
-  fourteen: 14,
-  fifteen: 15,
-  sixteen: 16,
-  seventeen: 17,
-  eighteen: 18,
-  nineteen: 19,
-  twenty: 20,
-  thirty: 30,
-  forty: 40,
-  fifty: 50,
-  sixty: 60,
-  seventy: 70,
-  eighty: 80,
-  ninety: 90,
-  hundred: 100,
-  a: 1,
-  an: 1,
-  couple: 2,
-  few: 3,
-  dozen: 12,
+  zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6,
+  seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+  thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
+  seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
+  thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70,
+  eighty: 80, ninety: 90, hundred: 100, a: 1, an: 1, couple: 2,
+  few: 3, dozen: 12,
 };
 
 function getInitials(user) {
   const source = user?.displayName || user?.email || "L";
+  return source.split(/[\s@]+/).slice(0, 2).map((word) => word.charAt(0).toUpperCase()).join("");
+}
 
-  return source
-    .split(/[\s@]+/)
-    .slice(0, 2)
-    .map((word) => word.charAt(0).toUpperCase())
-    .join("");
+function getEmailInitial(user) {
+  return (user?.email?.trim()?.charAt(0) || "L").toUpperCase();
 }
 
 function getAuthError(error) {
@@ -272,567 +212,265 @@ function getAuthError(error) {
     "auth/network-request-failed": "Check your internet connection.",
     "auth/popup-closed-by-user": "",
   };
-
   return messages[error?.code] || "Something went wrong.";
 }
 
-function normalize(value) {
-  return value.trim().toLowerCase();
-}
-
-function cloneFirestoreData(value) {
-  const { id: _ignoredId, ...data } = value;
-  return data;
-}
-
-function startOfDay(date) {
-  const result = new Date(date);
-  result.setHours(0, 0, 0, 0);
-  return result;
-}
-
-function addDays(date, amount) {
-  const result = new Date(date);
-  result.setDate(result.getDate() + amount);
-  return result;
-}
-
-function isValidDate(value) {
-  return value instanceof Date && !Number.isNaN(value.getTime());
-}
-
-function setLocalTime(date, hours, minutes) {
-  const result = new Date(date);
-  result.setHours(hours, minutes, 0, 0);
-  return result;
-}
-
-function isExplicitTimeResult(result) {
-  if (!result?.start) return false;
-
-  return (
-    result.start.isCertain("hour") ||
-    result.start.isCertain("minute") ||
-    result.start.isCertain("meridiem")
-  );
-}
+function normalize(value) { return value.trim().toLowerCase(); }
+function cloneFirestoreData(value) { const { id: _ignoredId, ...data } = value; return data; }
+function startOfDay(date) { const result = new Date(date); result.setHours(0, 0, 0, 0); return result; }
+function addDays(date, amount) { const result = new Date(date); result.setDate(result.getDate() + amount); return result; }
+function isValidDate(value) { return value instanceof Date && !Number.isNaN(value.getTime()); }
+function setLocalTime(date, hours, minutes) { const result = new Date(date); result.setHours(hours, minutes, 0, 0); return result; }
+function escapeRegExp(value) { return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 
 function normalizeNaturalInput(input) {
   return input
+    .normalize("NFKC")
     .replace(/[–—]/g, "-")
-    .replace(/\b(\d{1,2})\s*([ap])\.?\s*m\.?\b/gi, "$1$2m")
-    .replace(
-      /\b(\d{1,2})\s*[:.]\s*(\d{2})\s*([ap])\.?\s*m\.?\b/gi,
-      "$1:$2$3m",
-    )
-    .replace(/\b(\d{1,2})\s+o['’]?clock\b/gi, "$1:00")
-    .replace(/\bday\s+after\s+tmrw\b/gi, "day after tomorrow")
-    .replace(/\btmrw\b/gi, "tomorrow")
+    .replace(/\b(?:tmrw|tmr)\b/gi, "tomorrow")
     .replace(/\btonite\b/gi, "tonight")
+    .replace(/\bnxt\s+/gi, "next ")
+    .replace(/\b(\d{1,2})\s*([ap])\s*\.?\s*m\.?\b/gi, "$1$2m")
+    .replace(/\b(\d{1,2})\s*[:.\-]\s*(\d{2})\s*([ap])\s*\.?\s*m\.?\b/gi, "$1:$2$3m")
+    .replace(/\b(?:at|by|around|about)\s+(\d{1,2})(\d{2})\s*([ap]m)\b/gi,
+      (_match, hour, minute, meridiem) => `at ${hour}:${minute}${meridiem}`)
+    .replace(/\b(?:at|by|around|about)\s+([01]\d|2[0-3])([0-5]\d)\b/gi,
+      (_match, hour, minute) => `at ${hour}:${minute}`)
+    .replace(/\b(\d{1,2})\s+o['’]?clock\b/gi, "$1:00")
     .replace(/\s+/g, " ")
     .trim();
 }
 
 function parseNumberWords(value) {
-  const cleaned = value.toLowerCase().replace(/-/g, " ").trim();
-
-  if (/^\d+(?:\.\d+)?$/.test(cleaned)) {
-    return Number(cleaned);
-  }
-
-  const words = cleaned.split(/\s+/);
-  let total = 0;
+  const cleaned = value.toLowerCase().replace(/-/g, " ").replace(/\band\b/g, " ").trim();
+  if (/^\d+(?:\.\d+)?$/.test(cleaned)) return Number(cleaned);
+  const words = cleaned.split(/\s+/).filter(Boolean);
   let current = 0;
   let found = false;
-
   for (const word of words) {
     const number = NUMBER_WORDS[word];
-
     if (number === undefined) return null;
-
     found = true;
-
-    if (number === 100) {
-      current = Math.max(current, 1) * 100;
-    } else {
-      current += number;
-    }
+    if (number === 100) current = Math.max(current, 1) * 100;
+    else current += number;
   }
+  return found ? current : null;
+}
 
-  total += current;
-  return found ? total : null;
+function formatUnitForQuantity(unit, quantity) {
+  if (!unit) return "";
+  if (["kg", "g", "mg", "L", "ml", "m", "cm", "tbsp", "tsp", "oz", "lb"].includes(unit)) return unit;
+  if (unit === "dozen") return "dozen";
+  return quantity === 1 ? unit : `${unit}s`;
 }
 
 function parseQuantity(input) {
-  const unitPattern = QUANTITY_UNITS
-    .slice()
-    .sort((a, b) => b.length - a.length)
-    .map(escapeRegExp)
-    .join("|");
-
-  const numberPattern =
-    "(?:\\d+(?:\\.\\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|a|an|couple|few)(?:[-\\s]+(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred))?";
-
-  const unitMatch = input.match(
-    new RegExp(
-      `\\b(${numberPattern})\\s*(${unitPattern})\\b(?:\\s+of\\b)?`,
-      "i",
-    ),
-  );
-
+  const unitPattern = QUANTITY_UNITS.slice().sort((a, b) => b.length - a.length).map(escapeRegExp).join("|");
+  const numberPattern = "(?:\\d+(?:\\.\\d+)?|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|a|an|couple|few|dozen)(?:[-\\s]+(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred))?";
+  const unitMatch = input.match(new RegExp(`\\b(${numberPattern})\\s*(${unitPattern})\\b(?:\\s+of\\b)?`, "iu"));
   if (unitMatch) {
     const quantity = parseNumberWords(unitMatch[1]);
-
     if (quantity !== null) {
-      return {
-        quantity,
-        unit: unitMatch[2].toLowerCase(),
-        matchedText: unitMatch[0],
-        index: unitMatch.index ?? 0,
-      };
+      const canonical = QUANTITY_UNIT_ALIASES[unitMatch[2].toLowerCase()] || "";
+      return { quantity, unit: formatUnitForQuantity(canonical, quantity), canonicalUnit: canonical, matchedText: unitMatch[0], index: unitMatch.index ?? 0 };
     }
   }
-
-  const multiplierMatch = input.match(
-    new RegExp(
-      `\\b(${numberPattern})\\s*[x×]\\s+([\\p{L}\\p{N}][^,.;]*)`,
-      "iu",
-    ),
-  );
-
+  const multiplierMatch = input.match(new RegExp(`\\b(${numberPattern})\\s*[x×]\\s+(?=[\\p{L}\\p{N}])`, "iu"));
   if (multiplierMatch) {
     const quantity = parseNumberWords(multiplierMatch[1]);
-
-    if (quantity !== null) {
-      return {
-        quantity,
-        unit: "",
-        matchedText: multiplierMatch[1],
-        index: multiplierMatch.index ?? 0,
-      };
-    }
+    if (quantity !== null) return { quantity, unit: "", canonicalUnit: "", matchedText: multiplierMatch[1], index: multiplierMatch.index ?? 0 };
   }
-
-  const genericMatch = input.match(
-    new RegExp(
-      `\\b(?:buy|get|add|order|pick\\s+up|bring|need|take)\\s+(${numberPattern})\\b`,
-      "i",
-    ),
-  );
-
+  const genericMatch = input.match(new RegExp(`\\b(?:buy|get|add|order|pick\\s+up|bring|need|take)\\s+(${numberPattern})\\b`, "iu"));
   if (genericMatch) {
     const quantity = parseNumberWords(genericMatch[1]);
-
-    if (quantity !== null) {
-      return {
-        quantity,
-        unit: "",
-        matchedText: genericMatch[1],
-        index:
-          (genericMatch.index ?? 0) +
-          genericMatch[0].lastIndexOf(genericMatch[1]),
-      };
-    }
+    if (quantity !== null) return { quantity, unit: "", canonicalUnit: "", matchedText: genericMatch[1], index: (genericMatch.index ?? 0) + genericMatch[0].lastIndexOf(genericMatch[1]) };
   }
-
   return null;
 }
 
-function maskRange(value, index, length) {
-  return (
-    value.slice(0, index) +
-    " ".repeat(length) +
-    value.slice(index + length)
-  );
+function maskRange(value, index, length) { return value.slice(0, index) + " ".repeat(length) + value.slice(index + length); }
+
+function parseClockTime(input) {
+  const specialMatch = input.match(/\b(noon|midday|midnight|morning|afternoon|evening|tonight|night|eod|cob)\b/i);
+  if (specialMatch) {
+    const key = specialMatch[1].toLowerCase();
+    return { ...DAYPART_TIMES[key], matchedText: specialMatch[0], index: specialMatch.index ?? 0 };
+  }
+  const meridiemMatch = input.match(/\b(?:at|by|around|about)?\s*(1[0-2]|0?[1-9])(?:[:.\-]([0-5]\d))?\s*([ap]m)\b/i);
+  if (meridiemMatch) {
+    let hours = Number(meridiemMatch[1]);
+    const minutes = Number(meridiemMatch[2] || 0);
+    const meridiem = meridiemMatch[3].toLowerCase();
+    if (meridiem === "pm" && hours !== 12) hours += 12;
+    if (meridiem === "am" && hours === 12) hours = 0;
+    return { hours, minutes, matchedText: meridiemMatch[0].trim(), index: meridiemMatch.index ?? 0 };
+  }
+  const twentyFourHourMatch = input.match(/\b(?:at|by|around|about)\s+([01]?\d|2[0-3])[:.]([0-5]\d)\b/i);
+  if (twentyFourHourMatch) return { hours: Number(twentyFourHourMatch[1]), minutes: Number(twentyFourHourMatch[2]), matchedText: twentyFourHourMatch[0], index: twentyFourHourMatch.index ?? 0 };
+  const bareContextMatch = input.match(/\b(?:at|by|around|about)\s+(1[0-2]|0?[1-9])\b/i);
+  if (bareContextMatch) {
+    let hours = Number(bareContextMatch[1]);
+    if (hours >= 1 && hours <= 7) hours += 12;
+    return { hours, minutes: 0, matchedText: bareContextMatch[0], index: bareContextMatch.index ?? 0 };
+  }
+  return null;
 }
 
-function parseChronoResult(input, referenceDate) {
-  const results = chrono.casual.parse(
-    input,
-    {
-      instant: referenceDate,
-      timezone: referenceDate.getTimezoneOffset(),
-    },
-    {
-      forwardDate: true,
-    },
-  );
+function parseSpecialDate(input, referenceDate) {
+  const lower = input.toLowerCase();
+  if (/\bday after tomorrow\b/.test(lower)) return { date: addDays(startOfDay(referenceDate), 2), matchedText: "day after tomorrow" };
+  if (/\bnext week\b/.test(lower)) {
+    const d = startOfDay(referenceDate); const daysUntilMonday = ((8 - d.getDay()) % 7) || 7;
+    return { date: addDays(d, daysUntilMonday), matchedText: "next week" };
+  }
+  if (/\bthis weekend\b/.test(lower)) {
+    const d = startOfDay(referenceDate); let daysUntilSaturday = (6 - d.getDay() + 7) % 7;
+    if (daysUntilSaturday === 0 && referenceDate.getHours() >= 12) daysUntilSaturday = 7;
+    return { date: addDays(d, daysUntilSaturday), matchedText: "this weekend" };
+  }
+  if (/\bnext weekend\b/.test(lower)) {
+    const d = startOfDay(referenceDate); const daysUntilSaturday = (6 - d.getDay() + 7) % 7 || 7;
+    return { date: addDays(d, daysUntilSaturday + 7), matchedText: "next weekend" };
+  }
+  if (/\bend of (?:the )?week\b/.test(lower)) {
+    const d = startOfDay(referenceDate); const daysUntilSunday = (7 - d.getDay()) % 7 || 7;
+    return { date: addDays(d, daysUntilSunday), matchedText: input.match(/\bend of (?:the )?week\b/i)?.[0] || "end of week" };
+  }
+  if (/\bend of (?:the )?month\b|\beom\b/.test(lower)) {
+    const d = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 0);
+    return { date: startOfDay(d), matchedText: input.match(/\bend of (?:the )?month\b|\beom\b/i)?.[0] || "end of month" };
+  }
+  return null;
+}
 
-  if (results.length === 0) return null;
-
-  const sortedResults = [...results].sort((first, second) => {
-    const firstScore =
-      Number(isExplicitTimeResult(first)) * 4 +
-      Number(first.start.isCertain("day")) * 3 +
-      first.text.length / 1000;
-
-    const secondScore =
-      Number(isExplicitTimeResult(second)) * 4 +
-      Number(second.start.isCertain("day")) * 3 +
-      second.text.length / 1000;
-
-    return secondScore - firstScore;
-  });
-
-  return sortedResults[0];
+function chooseChronoResult(results) {
+  if (!results.length) return null;
+  return [...results].sort((a, b) => {
+    const sa = Number(a.start.isCertain("year")) + Number(a.start.isCertain("month")) + Number(a.start.isCertain("day")) + Number(a.start.isCertain("hour")) * 2;
+    const sb = Number(b.start.isCertain("year")) + Number(b.start.isCertain("month")) + Number(b.start.isCertain("day")) + Number(b.start.isCertain("hour")) * 2;
+    return sb !== sa ? sb - sa : b.text.length - a.text.length;
+  })[0];
 }
 
 function parseNaturalDateTime(input, quantityResult) {
   const referenceDate = new Date();
+  const clockTime = parseClockTime(input);
+  const specialDate = parseSpecialDate(input, referenceDate);
   let chronoInput = input;
-
-  if (quantityResult) {
-    chronoInput = maskRange(
-      chronoInput,
-      quantityResult.index,
-      quantityResult.matchedText.length,
-    );
+  if (quantityResult) chronoInput = maskRange(chronoInput, quantityResult.index, quantityResult.matchedText.length);
+  if (clockTime) chronoInput = maskRange(chronoInput, clockTime.index, clockTime.matchedText.length);
+  let chronoResult = null;
+  if (!specialDate) {
+    chronoResult = chooseChronoResult(chrono.en.GB.parse(chronoInput, { instant: referenceDate, timezone: referenceDate.getTimezoneOffset() }, { forwardDate: true }));
   }
-
-  const result = parseChronoResult(chronoInput, referenceDate);
-
-  if (!result) {
-    return {
-      dueAt: null,
-      matchedText: null,
-      hasExplicitTime: false,
-      warning: "",
-    };
+  let baseDate = specialDate?.date || chronoResult?.start?.date() || null;
+  const chronoHasTime = Boolean(chronoResult && (chronoResult.start.isCertain("hour") || chronoResult.start.isCertain("minute") || chronoResult.start.isCertain("meridiem")));
+  if (!baseDate && !clockTime) return { dueAt: null, matchedTexts: [], hasExplicitTime: false, warning: "" };
+  if (!baseDate && clockTime) baseDate = startOfDay(referenceDate);
+  if (!isValidDate(baseDate)) return { dueAt: null, matchedTexts: [], hasExplicitTime: false, warning: "The date or time could not be understood safely." };
+  let hours = DEFAULT_DATE_ONLY_HOUR;
+  let minutes = DEFAULT_DATE_ONLY_MINUTE;
+  let hasExplicitTime = false;
+  if (clockTime) { hours = clockTime.hours; minutes = clockTime.minutes; hasExplicitTime = true; }
+  else if (chronoHasTime) {
+    const h = chronoResult.start.get("hour"); const m = chronoResult.start.get("minute") ?? 0;
+    if (Number.isInteger(h) && h >= 0 && h <= 23 && Number.isInteger(m) && m >= 0 && m <= 59) { hours = h; minutes = m; hasExplicitTime = true; }
   }
-
-  const hasExplicitTime = isExplicitTimeResult(result);
-  let dueAt = result.start.date();
-
-  if (!isValidDate(dueAt)) {
-    return {
-      dueAt: null,
-      matchedText: null,
-      hasExplicitTime: false,
-      warning: "The date or time could not be understood safely.",
-    };
-  }
-
-  if (!hasExplicitTime) {
-    dueAt = setLocalTime(
-      dueAt,
-      DEFAULT_DATE_ONLY_HOUR,
-      DEFAULT_DATE_ONLY_MINUTE,
-    );
-  } else {
-    const hour = result.start.get("hour");
-    const minute = result.start.get("minute") ?? 0;
-
-    if (
-      !Number.isInteger(hour) ||
-      hour < 0 ||
-      hour > 23 ||
-      !Number.isInteger(minute) ||
-      minute < 0 ||
-      minute > 59
-    ) {
-      return {
-        dueAt: null,
-        matchedText: null,
-        hasExplicitTime: false,
-        warning: "The time could not be understood safely.",
-      };
-    }
-
-    dueAt = setLocalTime(dueAt, hour, minute);
-  }
-
-  return {
-    dueAt,
-    matchedText: result.text,
-    hasExplicitTime,
-    warning: "",
-  };
+  let dueAt = setLocalTime(baseDate, hours, minutes);
+  if (hasExplicitTime && !specialDate && !chronoResult?.start?.isCertain("day") && dueAt.getTime() <= referenceDate.getTime()) dueAt = addDays(dueAt, 1);
+  return { dueAt, matchedTexts: [specialDate?.matchedText, chronoResult?.text, clockTime?.matchedText].filter(Boolean), hasExplicitTime, warning: "" };
 }
 
 function cleanupTaskText(input, matches) {
   let text = input;
-
-  matches
-    .filter(Boolean)
-    .sort((first, second) => second.length - first.length)
-    .forEach((match) => {
-      text = text.replace(new RegExp(escapeRegExp(match), "i"), " ");
-    });
-
-  text = text
-    .replace(/\b(?:on|at|by|for|around|about)\s*$/i, "")
-    .replace(/\s+([,.;!?])/g, "$1")
-    .replace(/^[,.;:\s-]+|[,.;:\s-]+$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
+  matches.filter(Boolean).sort((a, b) => b.length - a.length).forEach((match) => { text = text.replace(new RegExp(escapeRegExp(match), "i"), " "); });
+  text = text.replace(/\b(?:on|at|by|for|around|about|before|after)\s*$/i, "").replace(/\s+([,.;!?])/g, "$1").replace(/^[,.;:\s-]+|[,.;:\s-]+$/g, "").replace(/\s+/g, " ").trim();
+  text = text.replace(/^(?:buy|get|add|order|pick\s+up|bring|need)\s+/i, "");
   if (!text) return input.trim();
-
   return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function parseNaturalInput(input) {
   const rawInput = input.trim();
   const normalizedInput = normalizeNaturalInput(rawInput);
   const parsedQuantity = parseQuantity(normalizedInput);
-  const parsedDateTime = parseNaturalDateTime(
-    normalizedInput,
-    parsedQuantity,
-  );
-
-  const text = cleanupTaskText(normalizedInput, [
-    parsedDateTime.matchedText,
-    parsedQuantity?.matchedText,
-  ]);
-
-  return {
-    rawInput,
-    text,
-    quantity: parsedQuantity?.quantity ?? null,
-    quantityUnit: parsedQuantity?.unit || "",
-    dueAt: parsedDateTime.dueAt,
-    hasExplicitTime: parsedDateTime.hasExplicitTime,
-    warning: parsedDateTime.warning,
-    hasNaturalData: Boolean(
-      parsedDateTime.dueAt ||
-        parsedQuantity,
-    ),
-  };
+  const parsedDateTime = parseNaturalDateTime(normalizedInput, parsedQuantity);
+  const text = cleanupTaskText(normalizedInput, [...parsedDateTime.matchedTexts, parsedQuantity?.matchedText]);
+  return { rawInput, text, quantity: parsedQuantity?.quantity ?? null, quantityUnit: parsedQuantity?.unit || "", dueAt: parsedDateTime.dueAt, hasExplicitTime: parsedDateTime.hasExplicitTime, warning: parsedDateTime.warning, hasNaturalData: Boolean(parsedDateTime.dueAt || parsedQuantity) };
 }
 
 function formatDateForInput(value) {
   if (!value) return "";
-
-  const date =
-    typeof value?.toDate === "function"
-      ? value.toDate()
-      : new Date(value);
-
+  const date = typeof value?.toDate === "function" ? value.toDate() : new Date(value);
   if (!isValidDate(date)) return "";
-
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function formatTimeForInput(value) {
   if (!value) return "";
-
-  const date =
-    typeof value?.toDate === "function"
-      ? value.toDate()
-      : new Date(value);
-
+  const date = typeof value?.toDate === "function" ? value.toDate() : new Date(value);
   if (!isValidDate(date)) return "";
-
-  return `${String(date.getHours()).padStart(2, "0")}:${String(
-    date.getMinutes(),
-  ).padStart(2, "0")}`;
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 function combineLocalDateAndTime(dateValue, timeValue) {
   if (!dateValue) return null;
-
   const [year, month, day] = dateValue.split("-").map(Number);
   const [hours, minutes] = (timeValue || "12:00").split(":").map(Number);
-
-  if (
-    !Number.isInteger(year) ||
-    !Number.isInteger(month) ||
-    !Number.isInteger(day) ||
-    !Number.isInteger(hours) ||
-    !Number.isInteger(minutes)
-  ) {
-    return null;
-  }
-
-  const result = new Date(
-    year,
-    month - 1,
-    day,
-    hours,
-    minutes,
-    0,
-    0,
-  );
-
-  if (
-    result.getFullYear() !== year ||
-    result.getMonth() !== month - 1 ||
-    result.getDate() !== day ||
-    result.getHours() !== hours ||
-    result.getMinutes() !== minutes
-  ) {
-    return null;
-  }
-
+  if (![year, month, day, hours, minutes].every(Number.isInteger)) return null;
+  const result = new Date(year, month - 1, day, hours, minutes, 0, 0);
+  if (result.getFullYear() !== year || result.getMonth() !== month - 1 || result.getDate() !== day || result.getHours() !== hours || result.getMinutes() !== minutes) return null;
   return result;
 }
 
 function formatDueDate(value) {
   if (!value) return "";
-
-  const date =
-    typeof value?.toDate === "function"
-      ? value.toDate()
-      : new Date(value);
-
+  const date = typeof value?.toDate === "function" ? value.toDate() : new Date(value);
   if (!isValidDate(date)) return "";
-
   const today = startOfDay(new Date());
   const tomorrow = addDays(today, 1);
   const dateOnly = startOfDay(date);
-
   let dateLabel;
-
-  if (dateOnly.getTime() === today.getTime()) {
-    dateLabel = "Today";
-  } else if (dateOnly.getTime() === tomorrow.getTime()) {
-    dateLabel = "Tomorrow";
-  } else {
-    dateLabel = new Intl.DateTimeFormat(undefined, {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-    }).format(date);
-  }
-
-  const timeLabel = new Intl.DateTimeFormat(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  }).format(date);
-
+  if (dateOnly.getTime() === today.getTime()) dateLabel = "Today";
+  else if (dateOnly.getTime() === tomorrow.getTime()) dateLabel = "Tomorrow";
+  else dateLabel = new Intl.DateTimeFormat(undefined, { weekday: "short", month: "short", day: "numeric" }).format(date);
+  const timeLabel = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", hour12: true }).format(date);
   return `${dateLabel}, ${timeLabel}`;
 }
 
-function formatQuantity(quantity, unit) {
-  if (quantity === null || quantity === undefined) return "";
+function formatQuantity(quantity, unit) { if (quantity === null || quantity === undefined) return ""; return unit ? `${quantity} ${unit}` : `×${quantity}`; }
+function getItemMetadata(item) { return [formatQuantity(item.quantity, item.quantityUnit), formatDueDate(item.dueAt)].filter(Boolean).join(" · "); }
 
-  return unit ? `${quantity} ${unit}` : `×${quantity}`;
+function useVisualViewportBridge() {
+  useEffect(() => {
+    const root = document.documentElement;
+    const viewport = window.visualViewport;
+    function updateViewport() {
+      const layoutHeight = root.clientHeight || window.innerHeight;
+      const visualHeight = viewport?.height || window.innerHeight;
+      const offsetTop = viewport?.offsetTop || 0;
+      const keyboardOffset = Math.max(0, layoutHeight - visualHeight - offsetTop);
+      root.style.setProperty("--visual-viewport-height", `${Math.round(visualHeight)}px`);
+      root.style.setProperty("--visual-viewport-top", `${Math.round(offsetTop)}px`);
+      root.style.setProperty("--keyboard-offset", `${Math.round(keyboardOffset)}px`);
+      root.classList.toggle("keyboard-open", keyboardOffset > 80);
+    }
+    updateViewport();
+    viewport?.addEventListener("resize", updateViewport);
+    viewport?.addEventListener("scroll", updateViewport);
+    window.addEventListener("resize", updateViewport);
+    return () => {
+      viewport?.removeEventListener("resize", updateViewport);
+      viewport?.removeEventListener("scroll", updateViewport);
+      window.removeEventListener("resize", updateViewport);
+      root.classList.remove("keyboard-open");
+    };
+  }, []);
 }
 
-function getItemMetadata(item) {
-  return [
-    formatQuantity(item.quantity, item.quantityUnit),
-    formatDueDate(item.dueAt),
-  ]
-    .filter(Boolean)
-    .join(" · ");
-}
-
-
-const ITEM_HISTORY_LIMIT = 60;
-const SMART_SUGGESTION_LIMIT = 6;
-const RECENT_COMPLETED_LIMIT = 5;
 
 function normalizeItemKey(value) {
-  return value
-    .normalize("NFKD")
-    .toLowerCase()
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/&/g, " and ")
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function toMillis(value) {
-  if (!value) return 0;
-
-  if (typeof value?.toMillis === "function") {
-    return value.toMillis();
-  }
-
-  if (typeof value?.toDate === "function") {
-    return value.toDate().getTime();
-  }
-
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
-}
-
-function getSafeHistory(history) {
-  if (!Array.isArray(history)) return [];
-
-  return history
-    .filter(
-      (entry) =>
-        entry &&
-        typeof entry.text === "string" &&
-        typeof entry.key === "string",
-    )
-    .map((entry) => ({
-      key: entry.key,
-      text: entry.text,
-      count: Math.max(1, Number(entry.count) || 1),
-      lastUsedAt: Number(entry.lastUsedAt) || 0,
-      lastCompletedAt: Number(entry.lastCompletedAt) || 0,
-      quantity:
-        entry.quantity === null ||
-        entry.quantity === undefined ||
-        entry.quantity === ""
-          ? null
-          : Number(entry.quantity),
-      quantityUnit: entry.quantityUnit || "",
-    }));
-}
-
-function buildNextHistory(history, item, options = {}) {
-  const key = normalizeItemKey(item.text);
-
-  if (!key) return getSafeHistory(history);
-
-  const now = Date.now();
-  const safeHistory = getSafeHistory(history);
-  const existing = safeHistory.find((entry) => entry.key === key);
-
-  const nextEntry = {
-    key,
-    text: item.text.trim(),
-    count: Math.max(
-      1,
-      (existing?.count || 0) + (options.incrementCount === false ? 0 : 1),
-    ),
-    lastUsedAt:
-      options.touchUsed === false
-        ? existing?.lastUsedAt || 0
-        : now,
-    lastCompletedAt: options.completed
-      ? now
-      : existing?.lastCompletedAt || 0,
-    quantity:
-      item.quantity === null ||
-      item.quantity === undefined ||
-      item.quantity === ""
-        ? existing?.quantity ?? null
-        : Number(item.quantity),
-    quantityUnit:
-      item.quantityUnit || existing?.quantityUnit || "",
-  };
-
-  return [
-    nextEntry,
-    ...safeHistory.filter((entry) => entry.key !== key),
-  ]
-    .sort((first, second) => {
-      const firstScore =
-        first.count * 1_000_000 +
-        Math.max(first.lastUsedAt, first.lastCompletedAt);
-
-      const secondScore =
-        second.count * 1_000_000 +
-        Math.max(second.lastUsedAt, second.lastCompletedAt);
-
-      return secondScore - firstScore;
-    })
-    .slice(0, ITEM_HISTORY_LIMIT);
+  return value.normalize("NFKD").toLowerCase().replace(/[\u0300-\u036f]/g, "").replace(/&/g, " and ").replace(/[^\p{L}\p{N}]+/gu, " ").replace(/\s+/g, " ").trim();
 }
 
 function quantitiesCanMerge(existingItem, incomingItem) {
@@ -896,6 +534,10 @@ function mergeQuantities(existingItem, incomingItem) {
 
 export default function App() {
   const reduceMotion = useReducedMotion();
+  useVisualViewportBridge();
+
+  const [updateAvailable, setUpdateAvailable] = useState(Boolean(window.__LYST_UPDATE_AVAILABLE__));
+  const [updatingApp, setUpdatingApp] = useState(false);
 
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(firebaseReady);
@@ -919,6 +561,29 @@ export default function App() {
 
   const toastTimer = useRef(null);
   const undoTimer = useRef(null);
+
+  useEffect(() => {
+    function handleUpdateAvailable() { setUpdateAvailable(true); }
+    window.addEventListener("lyst:update-available", handleUpdateAvailable);
+    if (window.__LYST_UPDATE_AVAILABLE__) setUpdateAvailable(true);
+    return () => window.removeEventListener("lyst:update-available", handleUpdateAvailable);
+  }, []);
+
+  async function applyAppUpdate() {
+    if (updatingApp) return;
+    try {
+      setUpdatingApp(true);
+      if (typeof window.__LYST_APPLY_UPDATE__ === "function") {
+        await window.__LYST_APPLY_UPDATE__();
+        return;
+      }
+      window.location.reload();
+    } catch (error) {
+      console.error("Could not apply Lyst update:", error);
+      setUpdatingApp(false);
+      showToast("Could not update Lyst. Try reopening the app.");
+    }
+  }
 
   function showToast(message) {
     if (!message) return;
@@ -1105,7 +770,6 @@ export default function App() {
         {
           title: cleanTitle,
           archived: false,
-          itemHistory: [],
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         },
@@ -1253,9 +917,6 @@ export default function App() {
         await setDoc(listReference, {
           title: list.title,
           archived: Boolean(list.archived),
-          itemHistory: Array.isArray(list.itemHistory)
-            ? list.itemHistory
-            : [],
           createdAt: list.createdAt || serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
@@ -1376,6 +1037,12 @@ export default function App() {
       <GlobalStyles />
 
       <div className="app">
+        <UpdateBanner
+          visible={updateAvailable}
+          updating={updatingApp}
+          onUpdate={applyAppUpdate}
+        />
+
         <AnimatePresence>
           {!isOnline && (
             <motion.div
@@ -1416,6 +1083,7 @@ export default function App() {
               onAccount={() => setAccountOpen(true)}
               onSearch={() => setSearchOpen(true)}
               onArchive={() => setArchiveOpen(true)}
+              onRename={setEditList}
             />
           )}
         </AnimatePresence>
@@ -1712,7 +1380,48 @@ function HomeScreen({
   onAccount,
   onSearch,
   onArchive,
+  onRename,
 }) {
+  const listLongPressTimer = useRef(null);
+  const listLongPressTriggered = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      window.clearTimeout(listLongPressTimer.current);
+    };
+  }, []);
+
+  function startListLongPress(event, list) {
+    if (event.pointerType === "mouse" && event.button !== 0) {
+      return;
+    }
+
+    listLongPressTriggered.current = false;
+    window.clearTimeout(listLongPressTimer.current);
+
+    listLongPressTimer.current = window.setTimeout(() => {
+      listLongPressTriggered.current = true;
+      onRename(list);
+
+      if ("vibrate" in navigator) {
+        navigator.vibrate(12);
+      }
+    }, 500);
+  }
+
+  function cancelListLongPress() {
+    window.clearTimeout(listLongPressTimer.current);
+  }
+
+  function openListAfterPress(list) {
+    if (listLongPressTriggered.current) {
+      listLongPressTriggered.current = false;
+      return;
+    }
+
+    onOpenList(list);
+  }
+
   return (
     <motion.main
       className="screen"
@@ -1725,50 +1434,86 @@ function HomeScreen({
         opacity: 0,
         x: reduceMotion ? 0 : -10,
       }}
+      transition={{
+        type: "spring",
+        stiffness: 320,
+        damping: 31,
+      }}
     >
       <header className="home-header">
-        <div>
+        <motion.div
+          initial={reduceMotion ? false : { opacity: 0, y: -7 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{
+            type: "spring",
+            stiffness: 360,
+            damping: 28,
+          }}
+        >
           <span className="app-label">Lyst</span>
           <h1>Lists</h1>
-        </div>
+        </motion.div>
 
         <motion.button
           className="avatar-button"
           type="button"
-          whileTap={{ scale: 0.9 }}
+          whileHover={reduceMotion ? {} : { y: -2, rotate: 2 }}
+          whileTap={{ scale: 0.9, rotate: -3 }}
+          transition={{
+            type: "spring",
+            stiffness: 500,
+            damping: 26,
+          }}
           onClick={onAccount}
+          aria-label="Open account"
         >
-          {user.photoURL ? (
-            <img
-              src={user.photoURL}
-              alt=""
-              referrerPolicy="no-referrer"
-            />
-          ) : (
-            getInitials(user)
-          )}
+          {getEmailInitial(user)}
         </motion.button>
       </header>
 
-      <div className="home-actions">
+      <motion.div
+        className="home-actions"
+        initial={reduceMotion ? false : { opacity: 0, y: 7 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: reduceMotion ? 0 : 0.035 }}
+      >
         <motion.button
+          className="search-action"
           type="button"
-          whileTap={{ scale: 0.97 }}
+          whileHover={reduceMotion ? {} : { y: -2, scale: 1.015 }}
+          whileTap={{ scale: 0.96 }}
+          transition={{
+            type: "spring",
+            stiffness: 480,
+            damping: 28,
+          }}
           onClick={onSearch}
         >
           Search
         </motion.button>
 
         <motion.button
+          className="archive-action"
           type="button"
-          whileTap={{ scale: 0.97 }}
+          whileHover={reduceMotion ? {} : { y: -2, scale: 1.015 }}
+          whileTap={{ scale: 0.96 }}
+          transition={{
+            type: "spring",
+            stiffness: 480,
+            damping: 28,
+          }}
           onClick={onArchive}
         >
           Archived {archivedCount > 0 ? `(${archivedCount})` : ""}
         </motion.button>
-      </div>
+      </motion.div>
 
-      <div className="list-toolbar">
+      <motion.div
+        className="list-toolbar"
+        initial={reduceMotion ? false : { opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: reduceMotion ? 0 : 0.075 }}
+      >
         <span>
           {lists.length} {lists.length === 1 ? "list" : "lists"}
         </span>
@@ -1776,12 +1521,18 @@ function HomeScreen({
         <motion.button
           className="create-button"
           type="button"
-          whileTap={{ scale: 0.94 }}
+          whileHover={reduceMotion ? {} : { y: -2, scale: 1.025 }}
+          whileTap={{ scale: 0.93 }}
+          transition={{
+            type: "spring",
+            stiffness: 520,
+            damping: 28,
+          }}
           onClick={onCreate}
         >
           New
         </motion.button>
-      </div>
+      </motion.div>
 
       <section className="lists">
         {loading ? (
@@ -1796,22 +1547,66 @@ function HomeScreen({
               <motion.button
                 layout
                 key={list.id}
-                className="list-row"
+                className={`list-row pastel-row-${(index % 5) + 1}`}
                 type="button"
-                initial={{ opacity: 0, y: 7 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.985 }}
-                transition={{
-                  delay: Math.min(index * 0.025, 0.12),
-                  type: "spring",
-                  stiffness: 350,
-                  damping: 30,
+                initial={
+                  reduceMotion
+                    ? { opacity: 0 }
+                    : {
+                        opacity: 0,
+                        y: 9,
+                        scale: 0.992,
+                      }
+                }
+                animate={{
+                  opacity: 1,
+                  y: 0,
+                  scale: 1,
                 }}
-                whileTap={{ scale: 0.985 }}
-                onClick={() => onOpenList(list)}
+                exit={{
+                  opacity: 0,
+                  x: reduceMotion ? 0 : 12,
+                  scale: 0.985,
+                }}
+                transition={{
+                  delay: reduceMotion ? 0 : Math.min(index * 0.028, 0.14),
+                  type: "spring",
+                  stiffness: 390,
+                  damping: 31,
+                }}
+                whileHover={
+                  reduceMotion
+                    ? {}
+                    : {
+                        x: 3,
+                        scale: 1.004,
+                      }
+                }
+                whileTap={{ scale: 0.982 }}
+                onPointerDown={(event) =>
+                  startListLongPress(event, list)
+                }
+                onPointerUp={cancelListLongPress}
+                onPointerCancel={cancelListLongPress}
+                onPointerLeave={cancelListLongPress}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  cancelListLongPress();
+                  onRename(list);
+                }}
+                onClick={() => openListAfterPress(list)}
               >
+                <span className="list-accent" aria-hidden="true" />
+
                 <span className="list-title-text">{list.title}</span>
-                <span className="row-arrow">›</span>
+
+                <motion.span
+                  className="row-arrow"
+                  aria-hidden="true"
+                  whileHover={reduceMotion ? {} : { x: 2 }}
+                >
+                  ›
+                </motion.span>
               </motion.button>
             ))}
           </AnimatePresence>
@@ -1823,7 +1618,15 @@ function HomeScreen({
       <motion.button
         className="floating-button"
         type="button"
-        whileTap={{ scale: 0.88 }}
+        initial={reduceMotion ? false : { opacity: 0, scale: 0.7, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        whileHover={reduceMotion ? {} : { y: -3, rotate: 2 }}
+        whileTap={{ scale: 0.86, rotate: -3 }}
+        transition={{
+          type: "spring",
+          stiffness: 460,
+          damping: 27,
+        }}
         onClick={onCreate}
       >
         +
@@ -1877,16 +1680,10 @@ function ListScreen({
   const [editingItem, setEditingItem] = useState(null);
   const [naturalPreview, setNaturalPreview] = useState(null);
   const [duplicatePrompt, setDuplicatePrompt] = useState(null);
-  const [smartOpen, setSmartOpen] = useState(true);
 
   const inputRef = useRef(null);
   const longPressTimer = useRef(null);
   const longPressTriggered = useRef(false);
-
-  const listReference = useMemo(
-    () => doc(db, "users", user.uid, "lists", list.id),
-    [list.id, user.uid],
-  );
 
   useEffect(() => {
     const itemsQuery = query(
@@ -1952,38 +1749,6 @@ function ListScreen({
     [activeItems, completedItems],
   );
 
-  const recentCompleted = useMemo(
-    () =>
-      [...completedItems]
-        .sort(
-          (first, second) =>
-            toMillis(second.completedAt) -
-            toMillis(first.completedAt),
-        )
-        .slice(0, RECENT_COMPLETED_LIMIT),
-    [completedItems],
-  );
-
-  const smartSuggestions = useMemo(() => {
-    const activeKeys = new Set(
-      activeItems.map((item) => normalizeItemKey(item.text)),
-    );
-
-    return getSafeHistory(list.itemHistory)
-      .filter((entry) => !activeKeys.has(entry.key))
-      .sort((first, second) => {
-        if (second.count !== first.count) {
-          return second.count - first.count;
-        }
-
-        return second.lastUsedAt - first.lastUsedAt;
-      })
-      .slice(0, SMART_SUGGESTION_LIMIT);
-  }, [activeItems, list.itemHistory]);
-
-  const hasSmartContent =
-    smartSuggestions.length > 0 || recentCompleted.length > 0;
-
   function startLongPress(event, item) {
     if (event.pointerType === "mouse" && event.button !== 0) {
       return;
@@ -2021,19 +1786,6 @@ function ListScreen({
     setEditingItem(item);
   }
 
-  async function saveHistory(item, options = {}) {
-    const nextHistory = buildNextHistory(
-      list.itemHistory,
-      item,
-      options,
-    );
-
-    await updateDoc(listReference, {
-      itemHistory: nextHistory,
-      updatedAt: serverTimestamp(),
-    });
-  }
-
   async function createItem(parsedItem) {
     await addDoc(
       collection(
@@ -2062,7 +1814,6 @@ function ListScreen({
       },
     );
 
-    await saveHistory(parsedItem);
   }
 
   async function mergeDuplicate(existingItem, parsedItem) {
@@ -2091,17 +1842,6 @@ function ListScreen({
       },
     );
 
-    await saveHistory(
-      {
-        ...existingItem,
-        ...parsedItem,
-        quantity: mergedQuantity.quantity,
-        quantityUnit: mergedQuantity.quantityUnit,
-      },
-      {
-        incrementCount: true,
-      },
-    );
   }
 
   async function saveItem(parsedItem, options = {}) {
@@ -2192,72 +1932,10 @@ function ListScreen({
         },
       );
 
-      if (nextCompleted) {
-        await saveHistory(item, {
-          incrementCount: false,
-          touchUsed: false,
-          completed: true,
-        });
-      }
     } catch (error) {
       console.error(error);
       showToast("Could not update the item.");
     }
-  }
-
-  async function reAddCompleted(item) {
-    try {
-      setAdding(true);
-
-      await updateDoc(
-        doc(
-          db,
-          "users",
-          user.uid,
-          "lists",
-          list.id,
-          "items",
-          item.id,
-        ),
-        {
-          completed: false,
-          completedAt: null,
-          timesAdded: (Number(item.timesAdded) || 1) + 1,
-          updatedAt: serverTimestamp(),
-        },
-      );
-
-      await saveHistory(item, {
-        incrementCount: true,
-      });
-
-      showToast("Added back to the list.");
-    } catch (error) {
-      console.error(error);
-      showToast("Could not add the item back.");
-    } finally {
-      setAdding(false);
-    }
-  }
-
-  async function addSuggestion(suggestion) {
-    const completedMatch = completedItems.find(
-      (item) => normalizeItemKey(item.text) === suggestion.key,
-    );
-
-    if (completedMatch) {
-      await reAddCompleted(completedMatch);
-      return;
-    }
-
-    await saveItem({
-      rawInput: suggestion.text,
-      text: suggestion.text,
-      quantity: suggestion.quantity,
-      quantityUnit: suggestion.quantityUnit,
-      dueAt: null,
-      hasNaturalData: false,
-    });
   }
 
   async function editItem(item, text) {
@@ -2282,15 +1960,6 @@ function ListScreen({
         },
       );
 
-      await saveHistory(
-        {
-          ...item,
-          text: cleanText,
-        },
-        {
-          incrementCount: false,
-        },
-      );
 
       setEditingItem(null);
       showToast("Item updated.");
@@ -2472,89 +2141,6 @@ function ListScreen({
         </p>
       </section>
 
-      {hasSmartContent && (
-        <section className="smart-panel">
-          <button
-            className="smart-panel-header"
-            type="button"
-            onClick={() => setSmartOpen((value) => !value)}
-          >
-            <span>
-              <strong>Smart picks</strong>
-              <small>Based on items used in this list</small>
-            </span>
-
-            <span className="smart-chevron">
-              {smartOpen ? "−" : "+"}
-            </span>
-          </button>
-
-          <AnimatePresence initial={false}>
-            {smartOpen && (
-              <motion.div
-                className="smart-panel-content"
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-              >
-                {smartSuggestions.length > 0 && (
-                  <div className="smart-group">
-                    <span className="smart-label">Frequent</span>
-
-                    <div className="suggestion-chips">
-                      {smartSuggestions.map((suggestion) => (
-                        <motion.button
-                          key={suggestion.key}
-                          type="button"
-                          disabled={adding}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() => addSuggestion(suggestion)}
-                        >
-                          <span>{suggestion.text}</span>
-                          <small>
-                            {suggestion.count > 1
-                              ? `${suggestion.count}×`
-                              : "Add"}
-                          </small>
-                        </motion.button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {recentCompleted.length > 0 && (
-                  <div className="smart-group">
-                    <span className="smart-label">
-                      Recently completed
-                    </span>
-
-                    <div className="recent-completed-list">
-                      {recentCompleted.map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          disabled={adding}
-                          onClick={() => reAddCompleted(item)}
-                        >
-                          <span>
-                            <strong>{item.text}</strong>
-                            {getItemMetadata(item) && (
-                              <small>{getItemMetadata(item)}</small>
-                            )}
-                          </span>
-
-                          <b>Re-add</b>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </section>
-      )}
-
       <section className="items">
         {loading ? (
           <>
@@ -2590,11 +2176,11 @@ function ListScreen({
                     type="button"
                     animate={{
                       backgroundColor: item.completed
-                        ? "#111111"
-                        : "#ffffff",
+                        ? "#CFEADF"
+                        : "#FFFFFF",
                       borderColor: item.completed
-                        ? "#111111"
-                        : "#cfcfcf",
+                        ? "#B6D7C7"
+                        : "#D6CDDC",
                     }}
                     whileTap={{ scale: 0.8 }}
                     onClick={() => toggleItem(item)}
@@ -2672,6 +2258,9 @@ function ListScreen({
           maxLength={200}
           placeholder="Add an item, date or quantity"
           onChange={(event) => setNewItem(event.target.value)}
+          onFocus={(event) => {
+            window.setTimeout(() => event.currentTarget?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 120);
+          }}
         />
 
         <motion.button
@@ -3183,6 +2772,9 @@ function NewListSheet({ onClose, onCreate }) {
           maxLength={40}
           placeholder="List name"
           onChange={(event) => setTitle(event.target.value)}
+          onFocus={(event) => {
+            window.setTimeout(() => event.currentTarget?.scrollIntoView({ block: "center", behavior: "smooth" }), 120);
+          }}
         />
 
         <motion.button
@@ -3451,6 +3043,30 @@ function Sheet({ children, onClose }) {
 /* Supporting UI                                                              */
 /* -------------------------------------------------------------------------- */
 
+function UpdateBanner({ visible, updating, onUpdate }) {
+  return (
+    <AnimatePresence>
+      {visible && (
+        <motion.div
+          className="update-banner"
+          initial={{ opacity: 0, y: -12, scale: 0.97 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -8, scale: 0.98 }}
+          transition={{ type: "spring", stiffness: 380, damping: 30 }}
+        >
+          <div>
+            <strong>Lyst update ready</strong>
+            <span>Refresh once to use the newest version.</span>
+          </div>
+          <motion.button type="button" disabled={updating} whileTap={{ scale: 0.95 }} onClick={onUpdate}>
+            {updating ? "Updating..." : "Update"}
+          </motion.button>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 function UndoBar({ undoAction, onUndo }) {
   return (
     <AnimatePresence>
@@ -3585,6 +3201,27 @@ function GlobalStyles() {
 
 const styles = `
   :root {
+    --page: #FFFFFF;
+    --surface: #FFFFFF;
+    --lavender: #DDD3F6;
+    --lavender-soft: #F4F0FC;
+    --mint: #CFEADF;
+    --mint-soft: #EEF9F3;
+    --peach: #F8D8C8;
+    --peach-soft: #FFF1E9;
+    --sky: #D8E9FA;
+    --sky-soft: #EFF7FD;
+    --butter: #F7E8AE;
+    --butter-soft: #FFF9DE;
+    --rose: #F2D1DD;
+    --rose-soft: #FCEDF3;
+    --text: #343044;
+    --muted: #777181;
+    --border: #E9E5ED;
+    --visual-viewport-height: 100dvh;
+    --visual-viewport-top: 0px;
+    --keyboard-offset: 0px;
+
     font-family:
       "Avenir Next",
       Avenir,
@@ -3594,8 +3231,8 @@ const styles = `
       BlinkMacSystemFont,
       sans-serif;
 
-    color: #111111;
-    background: #ffffff;
+    color: #3B3650;
+    background: #FFFFFF;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
@@ -3612,7 +3249,7 @@ const styles = `
     min-width: 320px;
     min-height: 100%;
     margin: 0;
-    background: #ffffff;
+    background: #FFFFFF;
   }
 
   body {
@@ -3662,9 +3299,9 @@ const styles = `
     left: 50%;
     padding: 5px 10px;
     transform: translateX(-50%);
-    border: 1px solid #dedede;
+    border: 1px solid #E2DAE7;
     border-radius: 999px;
-    background: #ffffff;
+    background: #FFFDFC;
     font-size: 0.68rem;
     font-weight: 700;
   }
@@ -3685,7 +3322,7 @@ const styles = `
   .app-label {
     display: block;
     margin-bottom: 4px;
-    color: #777777;
+    color: #766F80;
     font-size: 0.71rem;
     font-weight: 700;
     letter-spacing: 0.08em;
@@ -3708,11 +3345,21 @@ const styles = `
     padding: 0;
     place-items: center;
     overflow: hidden;
-    border: 1px solid #dddddd;
+    border: 1px solid #CBBEEA;
     border-radius: 50%;
-    background: #ffffff;
-    font-size: 0.72rem;
-    font-weight: 750;
+    color: #4A4260;
+    background: var(--lavender);
+    box-shadow: 0 7px 18px rgba(91, 74, 120, 0.10);
+    font-size: 0.82rem;
+    font-weight: 800;
+    transition:
+      border-color 180ms ease,
+      box-shadow 180ms ease;
+  }
+
+  .avatar-button:hover {
+    border-color: #B8A6E2;
+    box-shadow: 0 10px 23px rgba(91, 74, 120, 0.15);
   }
 
   .avatar-button img,
@@ -3731,11 +3378,20 @@ const styles = `
   .home-actions button {
     min-height: 34px;
     padding: 0 12px;
-    border: 1px solid #e2e2e2;
     border-radius: 11px;
-    background: #ffffff;
     font-size: 0.76rem;
-    font-weight: 650;
+    font-weight: 680;
+    box-shadow: 0 4px 12px rgba(74, 59, 91, 0.045);
+  }
+
+  .home-actions .search-action {
+    border: 1px solid #C7DFD4;
+    background: var(--mint-soft);
+  }
+
+  .home-actions .archive-action {
+    border: 1px solid #E9C9D5;
+    background: var(--rose-soft);
   }
 
   .list-toolbar {
@@ -3743,7 +3399,7 @@ const styles = `
   }
 
   .list-toolbar span {
-    color: #777777;
+    color: #766F80;
     font-size: 0.81rem;
   }
 
@@ -3752,181 +3408,98 @@ const styles = `
     padding: 0 13px;
     border: 0;
     border-radius: 11px;
-    color: #ffffff;
-    background: #111111;
+    color: #4B435C;
+    background: var(--butter);
+    box-shadow: 0 5px 14px rgba(136, 109, 37, 0.10);
     font-size: 0.78rem;
     font-weight: 700;
-  }
-
-  .smart-panel {
-    margin: -4px 0 18px;
-    overflow: hidden;
-    border: 1px solid #e7e7e7;
-    border-radius: 16px;
-    background: #ffffff;
-  }
-
-  .smart-panel-header {
-    display: flex;
-    width: 100%;
-    min-height: 55px;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 13px;
-    text-align: left;
-    border: 0;
-    background: #ffffff;
-  }
-
-  .smart-panel-header > span:first-child {
-    display: grid;
-    gap: 2px;
-  }
-
-  .smart-panel-header strong {
-    font-size: 0.82rem;
-  }
-
-  .smart-panel-header small {
-    color: #888888;
-    font-size: 0.66rem;
-  }
-
-  .smart-chevron {
-    display: grid;
-    width: 25px;
-    height: 25px;
-    place-items: center;
-    border-radius: 8px;
-    color: #666666;
-    background: #f4f4f4;
-    font-size: 1rem;
-  }
-
-  .smart-panel-content {
-    overflow: hidden;
-    border-top: 1px solid #eeeeee;
-  }
-
-  .smart-group {
-    padding: 11px 12px 12px;
-  }
-
-  .smart-group + .smart-group {
-    border-top: 1px solid #eeeeee;
-  }
-
-  .smart-label {
-    display: block;
-    margin-bottom: 8px;
-    color: #777777;
-    font-size: 0.65rem;
-    font-weight: 720;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-  }
-
-  .suggestion-chips {
-    display: flex;
-    gap: 7px;
-    overflow-x: auto;
-    padding-bottom: 2px;
-    scrollbar-width: none;
-  }
-
-  .suggestion-chips::-webkit-scrollbar {
-    display: none;
-  }
-
-  .suggestion-chips button {
-    display: flex;
-    min-width: max-content;
-    min-height: 35px;
-    gap: 8px;
-    align-items: center;
-    padding: 0 10px;
-    border: 1px solid #dfdfdf;
-    border-radius: 11px;
-    background: #ffffff;
-  }
-
-  .suggestion-chips button:disabled,
-  .recent-completed-list button:disabled {
-    opacity: 0.4;
-  }
-
-  .suggestion-chips span {
-    font-size: 0.76rem;
-    font-weight: 650;
-  }
-
-  .suggestion-chips small {
-    color: #888888;
-    font-size: 0.62rem;
-    font-weight: 700;
-  }
-
-  .recent-completed-list {
-    display: grid;
-  }
-
-  .recent-completed-list > button {
-    display: flex;
-    min-height: 44px;
-    align-items: center;
-    justify-content: space-between;
-    padding: 7px 1px;
-    text-align: left;
-    border: 0;
-    border-bottom: 1px solid #f0f0f0;
-    background: #ffffff;
-  }
-
-  .recent-completed-list > button:last-child {
-    border-bottom: 0;
-  }
-
-  .recent-completed-list > button > span {
-    display: grid;
-    min-width: 0;
-    gap: 2px;
-  }
-
-  .recent-completed-list strong {
-    overflow: hidden;
-    font-size: 0.78rem;
-    font-weight: 640;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .recent-completed-list small {
-    color: #888888;
-    font-size: 0.65rem;
-  }
-
-  .recent-completed-list b {
-    flex: 0 0 auto;
-    color: #555555;
-    font-size: 0.67rem;
   }
 
   .lists,
   .items {
-    border-top: 1px solid #eeeeee;
+    border-top: 1px solid #EEE8F1;
   }
 
   .list-row {
+    position: relative;
     display: flex;
     width: 100%;
-    min-height: 56px;
+    min-height: 58px;
     align-items: center;
     justify-content: space-between;
-    padding: 0 4px;
+    gap: 11px;
+    padding: 0 7px 0 0;
+    overflow: hidden;
     text-align: left;
     border: 0;
-    border-bottom: 1px solid #eeeeee;
-    background: #ffffff;
+    border-bottom: 1px solid #EEEAF1;
+    background: #FFFFFF;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    transition:
+      background-color 180ms ease,
+      box-shadow 180ms ease;
+  }
+
+  .list-row:hover {
+    box-shadow: inset 0 0 0 1px rgba(104, 90, 121, 0.025);
+  }
+
+  .list-accent {
+    width: 5px;
+    height: 31px;
+    flex: 0 0 auto;
+    border-radius: 999px;
+    transform: scaleY(0.72);
+    transition:
+      transform 190ms ease,
+      width 190ms ease;
+  }
+
+  .list-row:hover .list-accent {
+    width: 6px;
+    transform: scaleY(1);
+  }
+
+  .pastel-row-1 .list-accent {
+    background: var(--lavender);
+  }
+
+  .pastel-row-2 .list-accent {
+    background: var(--mint);
+  }
+
+  .pastel-row-3 .list-accent {
+    background: var(--peach);
+  }
+
+  .pastel-row-4 .list-accent {
+    background: var(--sky);
+  }
+
+  .pastel-row-5 .list-accent {
+    background: var(--rose);
+  }
+
+  .pastel-row-1:hover {
+    background: var(--lavender-soft);
+  }
+
+  .pastel-row-2:hover {
+    background: var(--mint-soft);
+  }
+
+  .pastel-row-3:hover {
+    background: var(--peach-soft);
+  }
+
+  .pastel-row-4:hover {
+    background: var(--sky-soft);
+  }
+
+  .pastel-row-5:hover {
+    background: var(--rose-soft);
   }
 
   .list-title-text {
@@ -3938,8 +3511,14 @@ const styles = `
   }
 
   .row-arrow {
-    color: #aaaaaa;
+    margin-left: auto;
+    color: #A9A0B5;
     font-size: 1.5rem;
+    transition: color 180ms ease;
+  }
+
+  .list-row:hover .row-arrow {
+    color: #655A74;
   }
 
   .floating-button {
@@ -3953,8 +3532,9 @@ const styles = `
     place-items: center;
     border: 0;
     border-radius: 16px;
-    color: #ffffff;
-    background: #111111;
+    color: #3C4858;
+    background: var(--sky);
+    box-shadow: 0 11px 24px rgba(73, 112, 153, 0.16);
     font-size: 1.55rem;
   }
 
@@ -3977,7 +3557,7 @@ const styles = `
   .empty-state p,
   .empty-items p {
     margin-bottom: 18px;
-    color: #777777;
+    color: #766F80;
     font-size: 0.85rem;
   }
 
@@ -3990,8 +3570,9 @@ const styles = `
     padding: 0 15px;
     border: 0;
     border-radius: 13px;
-    color: #ffffff;
-    background: #111111;
+    color: #443B59;
+    background: var(--lavender);
+    box-shadow: 0 7px 18px rgba(91, 74, 120, 0.10);
     font-size: 0.86rem;
     font-weight: 700;
   }
@@ -4025,7 +3606,8 @@ const styles = `
     height: 34px;
     border: 0;
     border-radius: 10px;
-    background: #f4f4f4;
+    background: var(--peach-soft);
+    border: 1px solid #F0D3C4;
     font-size: 0.82rem;
     font-weight: 760;
   }
@@ -4037,9 +3619,9 @@ const styles = `
     right: 0;
     width: 175px;
     padding: 5px;
-    border: 1px solid #e4e4e4;
+    border: 1px solid #E8E0EC;
     border-radius: 13px;
-    background: #ffffff;
+    background: #FFFDFC;
     box-shadow: 0 16px 42px rgba(0, 0, 0, 0.12);
   }
 
@@ -4055,7 +3637,7 @@ const styles = `
   }
 
   .context-menu .danger-action {
-    color: #c92323;
+    color: #B85C6A;
   }
 
   .list-heading {
@@ -4064,7 +3646,7 @@ const styles = `
 
   .list-heading p {
     margin: 6px 0 0;
-    color: #777777;
+    color: #766F80;
     font-size: 0.81rem;
   }
 
@@ -4073,7 +3655,7 @@ const styles = `
     min-height: 53px;
     gap: 11px;
     align-items: center;
-    border-bottom: 1px solid #eeeeee;
+    border-bottom: 1px solid #EEE8F1;
     -webkit-user-select: none;
     user-select: none;
   }
@@ -4085,10 +3667,10 @@ const styles = `
     flex: 0 0 auto;
     padding: 0;
     place-items: center;
-    border: 1.5px solid #cfcfcf;
+    border: 1.5px solid #D6CDDC;
     border-radius: 50%;
-    color: #ffffff;
-    background: #ffffff;
+    color: #FFFDFC;
+    background: #FFFDFC;
   }
 
   .check-button span {
@@ -4137,7 +3719,7 @@ const styles = `
   }
 
   .item-metadata {
-    color: #888888;
+    color: #877F91;
     font-size: 0.7rem;
     font-weight: 520;
     line-height: 1.35;
@@ -4145,7 +3727,7 @@ const styles = `
 
   .item-row.completed .item-main-text,
   .item-row.completed .item-metadata {
-    color: #999999;
+    color: #9991A2;
   }
 
   .item-row.completed .item-main-text::after {
@@ -4163,7 +3745,7 @@ const styles = `
     padding: 0 7px;
     border: 0;
     border-radius: 9px;
-    color: #777777;
+    color: #766F80;
     background: transparent;
     font-size: 0.7rem;
   }
@@ -4185,9 +3767,9 @@ const styles = `
     align-items: center;
     margin: auto;
     padding: 5px 5px 5px 14px;
-    border: 1px solid #dddddd;
+    border: 1px solid #E1D8E6;
     border-radius: 16px;
-    background: #ffffff;
+    background: #FFFDFC;
     box-shadow: 0 11px 32px rgba(0, 0, 0, 0.11);
   }
 
@@ -4204,8 +3786,9 @@ const styles = `
     height: 40px;
     border: 0;
     border-radius: 12px;
-    color: #ffffff;
-    background: #111111;
+    color: #385447;
+    background: var(--mint);
+    box-shadow: 0 6px 15px rgba(68, 117, 91, 0.12);
     font-size: 1.4rem;
   }
 
@@ -4216,23 +3799,26 @@ const styles = `
   .sheet-backdrop {
     position: fixed;
     z-index: 100;
-    inset: 0;
+    top: var(--visual-viewport-top);
+    right: 0;
+    bottom: var(--keyboard-offset);
+    left: 0;
     display: flex;
     align-items: flex-end;
     justify-content: center;
     padding: 8px;
-    background: rgba(0, 0, 0, 0.2);
+    background: rgba(72, 59, 82, 0.18);
     backdrop-filter: blur(5px);
   }
 
   .sheet {
     width: min(100%, 460px);
-    max-height: calc(100dvh - 16px);
+    max-height: calc(var(--visual-viewport-height) - 16px);
     overflow-y: auto;
-    border: 1px solid #e4e4e4;
+    border: 1px solid #E5DDEC;
     border-radius: 23px;
-    background: #ffffff;
-    box-shadow: 0 24px 65px rgba(0, 0, 0, 0.18);
+    background: #FFFFFF;
+    box-shadow: 0 24px 65px rgba(69, 55, 80, 0.16);
   }
 
   .sheet-content {
@@ -4244,7 +3830,7 @@ const styles = `
     height: 4px;
     margin: 0 auto 17px;
     border-radius: 99px;
-    background: #d4d4d4;
+    background: var(--lavender);
   }
 
   .sheet-header {
@@ -4262,7 +3848,7 @@ const styles = `
 
   .sheet-subtitle {
     margin: 4px 0 0;
-    color: #777777;
+    color: #766F80;
     font-size: 0.73rem;
   }
 
@@ -4278,7 +3864,7 @@ const styles = `
     width: 100%;
     min-height: 45px;
     padding: 0 13px;
-    border: 1px solid #dddddd;
+    border: 1px solid #E1D8E6;
     border-radius: 12px;
     outline: 0;
     font-size: 0.88rem;
@@ -4286,6 +3872,22 @@ const styles = `
 
   .sheet-input {
     margin-bottom: 12px;
+  }
+
+  .sheet-input,
+  .auth-form input,
+  .add-item-bar input {
+    transition:
+      border-color 180ms ease,
+      box-shadow 180ms ease,
+      background-color 180ms ease;
+  }
+
+  .sheet-input:focus,
+  .auth-form input:focus {
+    border-color: #BFD8F1;
+    background: var(--sky-soft);
+    box-shadow: 0 0 0 4px rgba(216, 233, 250, 0.55);
   }
 
   .duplicate-comparison {
@@ -4298,12 +3900,12 @@ const styles = `
     display: grid;
     gap: 3px;
     padding: 11px 12px;
-    border: 1px solid #e6e6e6;
+    border: 1px solid #EAE3EE;
     border-radius: 12px;
   }
 
   .duplicate-comparison span {
-    color: #888888;
+    color: #877F91;
     font-size: 0.64rem;
     font-weight: 700;
     text-transform: uppercase;
@@ -4314,13 +3916,13 @@ const styles = `
   }
 
   .duplicate-comparison small {
-    color: #777777;
+    color: #766F80;
     font-size: 0.68rem;
   }
 
   .duplicate-note {
     margin: 0 1px 13px;
-    color: #777777;
+    color: #766F80;
     font-size: 0.7rem;
     line-height: 1.45;
   }
@@ -4332,9 +3934,9 @@ const styles = `
 
   .duplicate-actions > button:last-child {
     min-height: 43px;
-    border: 1px solid #dddddd;
+    border: 1px solid #E1D8E6;
     border-radius: 12px;
-    background: #ffffff;
+    background: #FFFDFC;
     font-size: 0.8rem;
     font-weight: 700;
   }
@@ -4346,7 +3948,7 @@ const styles = `
   .natural-field > span {
     display: block;
     margin: 0 0 6px 2px;
-    color: #777777;
+    color: #766F80;
     font-size: 0.7rem;
     font-weight: 650;
   }
@@ -4363,12 +3965,12 @@ const styles = `
     justify-content: space-between;
     margin-bottom: 13px;
     padding: 12px 2px;
-    border-top: 1px solid #eeeeee;
-    border-bottom: 1px solid #eeeeee;
+    border-top: 1px solid #EEE8F1;
+    border-bottom: 1px solid #EEE8F1;
   }
 
   .parsed-date span {
-    color: #777777;
+    color: #766F80;
     font-size: 0.74rem;
   }
 
@@ -4378,7 +3980,7 @@ const styles = `
 
   .natural-warning {
     margin: -2px 0 13px;
-    color: #b42318;
+    color: #B45E67;
     font-size: 0.73rem;
     line-height: 1.4;
   }
@@ -4388,7 +3990,7 @@ const styles = `
     margin-top: 13px;
     padding: 5px;
     border: 0;
-    color: #666666;
+    color: #6B6475;
     background: transparent;
     font-size: 0.7rem;
     font-weight: 650;
@@ -4403,7 +4005,7 @@ const styles = `
     min-height: 52px;
     align-items: center;
     justify-content: space-between;
-    border-bottom: 1px solid #eeeeee;
+    border-bottom: 1px solid #EEE8F1;
   }
 
   .archive-row button {
@@ -4419,7 +4021,7 @@ const styles = `
   }
 
   .archive-row button:last-child {
-    color: #666666;
+    color: #6B6475;
     font-size: 0.72rem;
   }
 
@@ -4430,7 +4032,7 @@ const styles = `
 
   .search-message {
     padding: 24px 0;
-    color: #777777;
+    color: #766F80;
     text-align: center;
     font-size: 0.82rem;
   }
@@ -4441,8 +4043,8 @@ const styles = `
     padding: 13px 0;
     text-align: left;
     border: 0;
-    border-bottom: 1px solid #eeeeee;
-    background: #ffffff;
+    border-bottom: 1px solid #EEE8F1;
+    background: #FFFDFC;
   }
 
   .search-result strong,
@@ -4457,7 +4059,7 @@ const styles = `
 
   .search-result span {
     margin-top: 3px;
-    color: #777777;
+    color: #766F80;
     font-size: 0.74rem;
   }
 
@@ -4468,7 +4070,7 @@ const styles = `
 
   .confirmation-content p {
     margin-bottom: 18px;
-    color: #777777;
+    color: #766F80;
     font-size: 0.82rem;
     line-height: 1.45;
   }
@@ -4483,13 +4085,13 @@ const styles = `
     min-height: 44px;
     border: 0;
     border-radius: 12px;
-    background: #f1f1f1;
+    background: #F3EDF7;
     font-weight: 700;
   }
 
   .confirmation-actions .danger-confirm {
-    color: #ffffff;
-    background: #111111;
+    color: #FFFDFC;
+    background: #3B3650;
   }
 
   .account-row {
@@ -4498,8 +4100,8 @@ const styles = `
     align-items: center;
     margin-bottom: 12px;
     padding: 11px 0;
-    border-top: 1px solid #eeeeee;
-    border-bottom: 1px solid #eeeeee;
+    border-top: 1px solid #EEE8F1;
+    border-bottom: 1px solid #EEE8F1;
   }
 
   .account-avatar {
@@ -4509,8 +4111,8 @@ const styles = `
     place-items: center;
     overflow: hidden;
     border-radius: 50%;
-    color: #ffffff;
-    background: #111111;
+    color: #FFFDFC;
+    background: #3B3650;
     font-size: 0.7rem;
   }
 
@@ -4523,7 +4125,7 @@ const styles = `
 
   .account-row span,
   .offline-access-note span {
-    color: #777777;
+    color: #766F80;
     font-size: 0.74rem;
   }
 
@@ -4538,7 +4140,7 @@ const styles = `
     min-height: 100vh;
     min-height: 100dvh;
     padding: 16px;
-    background: #ffffff;
+    background: #FFFDFC;
   }
 
   .auth-page,
@@ -4552,9 +4154,9 @@ const styles = `
   .offline-expired-panel {
     width: min(100%, 330px);
     padding: 22px 19px 19px;
-    border: 1px solid #e6e6e6;
+    border: 1px solid #EAE3EE;
     border-radius: 20px;
-    background: #ffffff;
+    background: #FFFDFC;
   }
 
   .auth-name {
@@ -4574,7 +4176,7 @@ const styles = `
 
   .auth-heading p {
     margin: 0;
-    color: #777777;
+    color: #766F80;
     font-size: 0.82rem;
   }
 
@@ -4585,9 +4187,9 @@ const styles = `
     gap: 9px;
     align-items: center;
     justify-content: center;
-    border: 1px solid #dddddd;
+    border: 1px solid #E1D8E6;
     border-radius: 12px;
-    background: #ffffff;
+    background: #FFFDFC;
   }
 
   .google-mark {
@@ -4605,7 +4207,7 @@ const styles = `
     display: flex;
     align-items: center;
     margin: 15px 0;
-    color: #999999;
+    color: #9991A2;
     font-size: 0.66rem;
   }
 
@@ -4614,7 +4216,7 @@ const styles = `
     height: 1px;
     flex: 1;
     content: "";
-    background: #e8e8e8;
+    background: #EAE4EF;
   }
 
   .divider span {
@@ -4630,7 +4232,7 @@ const styles = `
   .switch-button,
   .offline-sign-out {
     border: 0;
-    color: #666666;
+    color: #6B6475;
     background: transparent;
     font-size: 0.71rem;
   }
@@ -4659,8 +4261,10 @@ const styles = `
     max-width: calc(100vw - 28px);
     margin: auto;
     border-radius: 11px;
-    color: #ffffff;
-    background: #111111;
+    color: #40384F;
+    background: #E5DCF7;
+    border: 1px solid #CFC0ED;
+    box-shadow: 0 10px 28px rgba(82, 65, 104, 0.14);
   }
 
   .toast {
@@ -4681,7 +4285,7 @@ const styles = `
 
   .undo-bar button {
     border: 0;
-    color: #ffffff;
+    color: #443B59;
     background: transparent;
     font-weight: 800;
   }
@@ -4689,7 +4293,7 @@ const styles = `
   .skeleton {
     display: block;
     border-radius: 99px;
-    background: #ededed;
+    background: #EFE8F2;
   }
 
   .skeleton-list-title {
@@ -4705,6 +4309,45 @@ const styles = `
   .skeleton-item-text {
     width: 58%;
     height: 10px;
+  }
+
+  .update-banner {
+    position: fixed;
+    z-index: 500;
+    top: max(12px, calc(env(safe-area-inset-top) + 8px));
+    right: 12px;
+    left: 12px;
+    display: flex;
+    width: min(430px, calc(100vw - 24px));
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+    margin: auto;
+    padding: 11px 11px 11px 14px;
+    border: 1px solid #D8CDED;
+    border-radius: 15px;
+    background: #F1ECFB;
+    box-shadow: 0 12px 34px rgba(74, 59, 91, 0.14);
+  }
+
+  .update-banner > div { display: grid; gap: 2px; }
+  .update-banner strong { font-size: 0.78rem; }
+  .update-banner span { color: var(--muted); font-size: 0.66rem; }
+  .update-banner button {
+    min-width: 72px; min-height: 34px; padding: 0 11px; border: 0;
+    border-radius: 10px; color: var(--text); background: var(--mint);
+    font-size: 0.72rem; font-weight: 760;
+  }
+  .update-banner button:disabled { opacity: 0.55; }
+
+  :root.keyboard-open .add-item-bar { bottom: calc(var(--keyboard-offset) + 8px); }
+  :root.keyboard-open .sheet-backdrop { padding-bottom: 6px; }
+  :root.keyboard-open .sheet { max-height: calc(var(--visual-viewport-height) - 12px); }
+
+  @media (hover: none) {
+    .list-row:active {
+      background: var(--lavender-soft);
+    }
   }
 
   @media (max-width: 600px) {

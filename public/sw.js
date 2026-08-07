@@ -1,5 +1,5 @@
-const APP_CACHE = "lyst-app-v4";
-const META_CACHE = "lyst-meta-v4";
+const APP_CACHE = "lyst-app-v6";
+const META_CACHE = "lyst-meta-v6";
 
 const CACHE_REFRESH_KEY = "/__lyst_cache_refresh__";
 const CACHE_DURATION = 60 * 24 * 60 * 60 * 1000;
@@ -11,8 +11,8 @@ const CORE_FILES = [
   "/logo.png",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
-  "/icons/apple-touch-icon-v2.png",
   "/icons/maskable-512.png",
+  "/icons/iosLOGO.png",
 ];
 
 self.addEventListener("install", (event) => {
@@ -44,7 +44,7 @@ self.addEventListener("message", (event) => {
   }
 
   if (messageType === "SKIP_WAITING") {
-    self.skipWaiting();
+    event.waitUntil(self.skipWaiting());
   }
 });
 
@@ -64,12 +64,18 @@ self.addEventListener("fetch", (event) => {
 
   if (
     request.destination === "script" ||
-    request.destination === "style" ||
+    request.destination === "style"
+  ) {
+    event.respondWith(handleFreshStaticRequest(request));
+    return;
+  }
+
+  if (
     request.destination === "image" ||
     request.destination === "font" ||
     request.destination === "manifest"
   ) {
-    event.respondWith(handleStaticRequest(request));
+    event.respondWith(handleCachedStaticRequest(request));
   }
 });
 
@@ -77,7 +83,9 @@ async function handleNavigationRequest(request) {
   const expired = await hasCacheExpired();
 
   try {
-    const networkResponse = await fetch(request);
+    const networkResponse = await fetch(request, {
+      cache: "no-store",
+    });
 
     if (networkResponse.ok) {
       const cache = await caches.open(APP_CACHE);
@@ -102,7 +110,31 @@ async function handleNavigationRequest(request) {
   }
 }
 
-async function handleStaticRequest(request) {
+async function handleFreshStaticRequest(request) {
+  const cache = await caches.open(APP_CACHE);
+
+  try {
+    const networkResponse = await fetch(request);
+
+    if (networkResponse.ok) {
+      await cache.put(request, networkResponse.clone());
+    }
+
+    return networkResponse;
+  } catch {
+    const cachedResponse = await cache.match(request);
+
+    return (
+      cachedResponse ||
+      new Response("", {
+        status: 503,
+        statusText: "Offline",
+      })
+    );
+  }
+}
+
+async function handleCachedStaticRequest(request) {
   const cache = await caches.open(APP_CACHE);
   const cachedResponse = await cache.match(request);
 
@@ -134,9 +166,7 @@ function refreshStaticFile(request, cache) {
         await cache.put(request, networkResponse.clone());
       }
     })
-    .catch(() => {
-      // Keep using the cached file while offline.
-    });
+    .catch(() => {});
 }
 
 async function refreshCacheTimestamp() {
@@ -222,7 +252,7 @@ function createOfflinePage(title, message) {
       content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     >
 
-    <meta name="theme-color" content="#ffffff">
+    <meta name="theme-color" content="#FFF8F4">
 
     <title>Lyst</title>
 
@@ -238,8 +268,8 @@ function createOfflinePage(title, message) {
         display: grid;
         place-items: center;
         padding: 24px;
-        color: #111111;
-        background: #ffffff;
+        color: #3B3650;
+        background: #FFF8F4;
         font-family:
           "Avenir Next",
           Avenir,
@@ -252,7 +282,11 @@ function createOfflinePage(title, message) {
 
       main {
         width: min(100%, 340px);
+        padding: 22px;
         text-align: center;
+        border: 1px solid #E8E0EC;
+        border-radius: 20px;
+        background: #FFFDFC;
       }
 
       h1 {
@@ -264,7 +298,7 @@ function createOfflinePage(title, message) {
 
       p {
         margin: 0;
-        color: #777777;
+        color: #766F80;
         font-size: 15px;
         line-height: 1.5;
       }
