@@ -24,6 +24,7 @@ import {
   deleteDoc,
   doc,
   getFirestore,
+  getDocs,
   initializeFirestore,
   onSnapshot,
   orderBy,
@@ -423,6 +424,52 @@ function combineLocalDateAndTime(dateValue, timeValue) {
   return result;
 }
 
+function formatCompactDateInput(dateValue) {
+  if (!dateValue) return "Select date";
+
+  const [year, month, day] = dateValue.split("-").map(Number);
+
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day)
+  ) {
+    return "Select date";
+  }
+
+  const date = new Date(year, month - 1, day);
+
+  if (!isValidDate(date)) return "Select date";
+
+  return new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+}
+
+function formatCompactTimeInput(timeValue) {
+  if (!timeValue) return "Select time";
+
+  const [hours, minutes] = timeValue.split(":").map(Number);
+
+  if (
+    !Number.isInteger(hours) ||
+    !Number.isInteger(minutes)
+  ) {
+    return "Select time";
+  }
+
+  const date = new Date();
+  date.setHours(hours, minutes, 0, 0);
+
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(date);
+}
+
 function formatDueDate(value) {
   if (!value) return "";
   const date = typeof value?.toDate === "function" ? value.toDate() : new Date(value);
@@ -440,6 +487,122 @@ function formatDueDate(value) {
 
 function formatQuantity(quantity, unit) { if (quantity === null || quantity === undefined) return ""; return unit ? `${quantity} ${unit}` : `×${quantity}`; }
 function getItemMetadata(item) { return [formatQuantity(item.quantity, item.quantityUnit), formatDueDate(item.dueAt)].filter(Boolean).join(" · "); }
+
+
+function getDueTone(value) {
+  if (!value) return "sky";
+
+  const date =
+    typeof value?.toDate === "function"
+      ? value.toDate()
+      : new Date(value);
+
+  if (!isValidDate(date)) return "sky";
+
+  const now = new Date();
+  const today = startOfDay(now);
+  const dueDay = startOfDay(date);
+
+  if (
+    date.getTime() < now.getTime() &&
+    dueDay.getTime() <= today.getTime()
+  ) {
+    return "rose";
+  }
+
+  if (dueDay.getTime() === today.getTime()) {
+    return "peach";
+  }
+
+  return "sky";
+}
+
+function getItemMetadataPills(item) {
+  const pills = [];
+
+  if (
+    item.quantity !== null &&
+    item.quantity !== undefined
+  ) {
+    pills.push({
+      key: "quantity",
+      label: formatQuantity(
+        item.quantity,
+        item.quantityUnit,
+      ),
+      tone: "mint",
+    });
+  }
+
+  if (item.dueAt) {
+    const date =
+      typeof item.dueAt?.toDate === "function"
+        ? item.dueAt.toDate()
+        : new Date(item.dueAt);
+
+    if (isValidDate(date)) {
+      const today = startOfDay(new Date());
+      const tomorrow = addDays(today, 1);
+      const dueDay = startOfDay(date);
+
+      let dayLabel;
+
+      if (dueDay.getTime() === today.getTime()) {
+        dayLabel =
+          date.getTime() < Date.now()
+            ? "Overdue"
+            : "Today";
+      } else if (dueDay.getTime() === tomorrow.getTime()) {
+        dayLabel = "Tomorrow";
+      } else {
+        dayLabel = new Intl.DateTimeFormat(undefined, {
+          month: "short",
+          day: "numeric",
+        }).format(date);
+      }
+
+      pills.push({
+        key: "date",
+        label: dayLabel,
+        tone: getDueTone(item.dueAt),
+      });
+
+      pills.push({
+        key: "time",
+        label: new Intl.DateTimeFormat(undefined, {
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        }).format(date),
+        tone: "lavender",
+      });
+    }
+  }
+
+  return pills;
+}
+
+function renderHighlightedText(text, term) {
+  const cleanTerm = term.trim();
+
+  if (!cleanTerm) return text;
+
+  const lowerText = text.toLowerCase();
+  const lowerTerm = cleanTerm.toLowerCase();
+  const index = lowerText.indexOf(lowerTerm);
+
+  if (index === -1) return text;
+
+  return (
+    <>
+      {text.slice(0, index)}
+      <mark>
+        {text.slice(index, index + cleanTerm.length)}
+      </mark>
+      {text.slice(index + cleanTerm.length)}
+    </>
+  );
+}
 
 function useVisualViewportBridge() {
   useEffect(() => {
@@ -1184,10 +1347,12 @@ function AuthScreen({ showToast }) {
 
       await signInWithPopup(auth, provider);
       await refreshOfflineAccess();
+
+      // Keep the loader visible until App receives the authenticated user
+      // and unmounts this screen. This prevents the login card flashing back.
     } catch (error) {
       console.error(error);
       showToast(getAuthError(error));
-    } finally {
       setWorking(false);
     }
   }
@@ -1226,10 +1391,11 @@ function AuthScreen({ showToast }) {
       }
 
       await refreshOfflineAccess();
+
+      // Keep the loader visible until App switches to the signed-in view.
     } catch (error) {
       console.error(error);
       showToast(getAuthError(error));
-    } finally {
       setWorking(false);
     }
   }
@@ -1256,69 +1422,42 @@ function AuthScreen({ showToast }) {
     }
   }
 
-  return (
-    <main className="auth-page">
-      <motion.div
-        className="auth-orbit auth-orbit-one"
-        aria-hidden="true"
-        animate={{
-          y: [0, -8, 0],
-          rotate: [0, 7, 0],
-        }}
-        transition={{
-          duration: 5.8,
-          repeat: Infinity,
-          ease: "easeInOut",
-        }}
-      >
-        🌸
-      </motion.div>
+  if (working) {
+    return (
+      <PastelLoader
+        label={mode === "signup" ? "Creating your Lyst" : "Opening your Lyst"}
+      />
+    );
+  }
 
-      <motion.div
-        className="auth-orbit auth-orbit-two"
-        aria-hidden="true"
-        animate={{
-          y: [0, 7, 0],
-          rotate: [0, -8, 0],
-        }}
-        transition={{
-          duration: 6.6,
-          repeat: Infinity,
-          ease: "easeInOut",
-          delay: 0.4,
-        }}
-      >
-        ✨
-      </motion.div>
+  return (
+    <main className="auth-page auth-page-balanced">
+      <div className="auth-decoration auth-decoration-one" aria-hidden="true" />
+      <div className="auth-decoration auth-decoration-two" aria-hidden="true" />
 
       <motion.section
-        className="auth-panel"
-        initial={{ opacity: 0, y: 18, scale: 0.975 }}
+        className="auth-panel auth-panel-balanced"
+        initial={{ opacity: 0, y: 16, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{
           type: "spring",
-          stiffness: 290,
-          damping: 27,
+          stiffness: 450,
+          damping: 22,
         }}
       >
-        <div className="auth-brand-row">
-          <motion.div
-            className="auth-badge"
-            initial={{ rotate: -8, scale: 0.9 }}
-            animate={{ rotate: 0, scale: 1 }}
-            transition={{
-              type: "spring",
-              stiffness: 420,
-              damping: 24,
-            }}
-          >
-            📝
-          </motion.div>
+        <div className="auth-top-accent" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+          <span />
+          <span />
+        </div>
 
+        <div className="auth-brand-balanced auth-brand-text-only">
           <div>
             <div className="auth-name">Lyst</div>
             <div className="auth-kicker">
-              little lists, less brain clutter ✨
+              little lists, less brain clutter
             </div>
           </div>
         </div>
@@ -1326,100 +1465,69 @@ function AuthScreen({ showToast }) {
         <AnimatePresence mode="wait">
           <motion.div
             key={mode}
-            className="auth-heading"
-            initial={{ opacity: 0, y: 7 }}
+            className="auth-heading auth-heading-balanced"
+            initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -7 }}
+            exit={{ opacity: 0, y: -6 }}
             transition={{
               type: "spring",
-              stiffness: 360,
-              damping: 29,
+              stiffness: 540,
+              damping: 24,
             }}
           >
             <h1>
-              {mode === "signin" ? "Welcome back 🌷" : "Make it yours 🌈"}
+              {mode === "signin" ? "Welcome back" : "Make it yours"}
             </h1>
 
             <p>
               {mode === "signin"
                 ? "Your lists are right where you left them."
-                : "A tiny pastel home for everything you want to remember."}
+                : "A calm little home for everything you want to remember."}
             </p>
           </motion.div>
         </AnimatePresence>
 
-        <div className="auth-mood-strip" aria-hidden="true">
-          <motion.span
-            whileHover={{ y: -3, rotate: -5 }}
-            transition={{ type: "spring", stiffness: 500, damping: 25 }}
-          >
-            🍓
-          </motion.span>
-
-          <motion.span
-            whileHover={{ y: -3, rotate: 5 }}
-            transition={{ type: "spring", stiffness: 500, damping: 25 }}
-          >
-            🫧
-          </motion.span>
-
-          <motion.span
-            whileHover={{ y: -3, rotate: -4 }}
-            transition={{ type: "spring", stiffness: 500, damping: 25 }}
-          >
-            ☁️
-          </motion.span>
-
-          <motion.span
-            whileHover={{ y: -3, rotate: 4 }}
-            transition={{ type: "spring", stiffness: 500, damping: 25 }}
-          >
-            🍋
-          </motion.span>
-        </div>
-
         <motion.button
-          className="google-button"
+          className="google-button google-button-balanced"
           type="button"
           disabled={working}
-          whileHover={{ y: -2, scale: 1.008 }}
-          whileTap={{ scale: 0.972 }}
-          transition={{
-            type: "spring",
-            stiffness: 470,
-            damping: 28,
-          }}
+          whileHover={{ y: -1 }}
+          whileTap={{ scale: 0.975 }}
           onClick={handleGoogle}
         >
           <span className="google-mark">G</span>
           Continue with Google
-          <span className="google-sparkle" aria-hidden="true">
-            ✨
-          </span>
         </motion.button>
 
         <div className="divider">
           <span>or use email</span>
         </div>
 
-        <form className="auth-form" onSubmit={handleSubmit}>
-          <label className="auth-input-wrap">
-            <span className="auth-input-emoji" aria-hidden="true">
-              💌
-            </span>
-
+        <form className="auth-form auth-form-balanced" onSubmit={handleSubmit}>
+          <label className="auth-field-balanced">
+            <span>Email</span>
             <input
               type="email"
               value={email}
               autoComplete="email"
-              placeholder="Email"
+              placeholder="you@example.com"
               onChange={(event) => setEmail(event.target.value)}
             />
           </label>
 
-          <label className="auth-input-wrap">
-            <span className="auth-input-emoji" aria-hidden="true">
-              🔐
+          <label className="auth-field-balanced">
+            <span className="auth-field-label-row">
+              <span>Password</span>
+
+              {mode === "signin" && (
+                <button
+                  className="forgot-button forgot-inline"
+                  type="button"
+                  onClick={handlePasswordReset}
+                >
+                  Forgot password?
+                </button>
+              )}
             </span>
 
             <input
@@ -1434,33 +1542,18 @@ function AuthScreen({ showToast }) {
             />
           </label>
 
-          {mode === "signin" && (
-            <button
-              className="forgot-button"
-              type="button"
-              onClick={handlePasswordReset}
-            >
-              Forgot password? 🪄
-            </button>
-          )}
-
           <motion.button
-            className="primary-button auth-primary-button"
+            className="primary-button auth-primary-button auth-primary-balanced"
             type="submit"
             disabled={working}
-            whileHover={{ y: -2, scale: 1.006 }}
-            whileTap={{ scale: 0.974 }}
-            transition={{
-              type: "spring",
-              stiffness: 470,
-              damping: 28,
-            }}
+            whileHover={{ y: -1 }}
+            whileTap={{ scale: 0.975 }}
           >
             {working
-              ? "One sec... ✨"
+              ? "Please wait..."
               : mode === "signup"
-                ? "Create my Lyst 🌼"
-                : "Open my Lyst 💫"}
+                ? "Create my Lyst"
+                : "Open my Lyst"}
           </motion.button>
         </form>
 
@@ -1474,8 +1567,8 @@ function AuthScreen({ showToast }) {
           }}
         >
           {mode === "signin"
-            ? "New here? Create an account 🌱"
-            : "Already have an account? Sign in 🌙"}
+            ? "New here? Create an account"
+            : "Already have an account? Sign in"}
         </button>
       </motion.section>
     </main>
@@ -1513,11 +1606,16 @@ function HomeScreen({
       return;
     }
 
+    const target = event.currentTarget;
+
     listLongPressTriggered.current = false;
     window.clearTimeout(listLongPressTimer.current);
 
+    target.classList.add("long-pressing");
+
     listLongPressTimer.current = window.setTimeout(() => {
       listLongPressTriggered.current = true;
+      target.classList.remove("long-pressing");
       onRename(list);
 
       if ("vibrate" in navigator) {
@@ -1526,8 +1624,9 @@ function HomeScreen({
     }, 500);
   }
 
-  function cancelListLongPress() {
+  function cancelListLongPress(event) {
     window.clearTimeout(listLongPressTimer.current);
+    event?.currentTarget?.classList?.remove("long-pressing");
   }
 
   function openListAfterPress(list) {
@@ -1549,12 +1648,13 @@ function HomeScreen({
       animate={{ opacity: 1, x: 0 }}
       exit={{
         opacity: 0,
-        x: reduceMotion ? 0 : -10,
+        x: reduceMotion ? 0 : -14,
       }}
       transition={{
         type: "spring",
-        stiffness: 320,
-        damping: 31,
+        stiffness: 820,
+        damping: 22,
+        mass: 0.55,
       }}
     >
       <header className="home-header">
@@ -1563,8 +1663,8 @@ function HomeScreen({
           animate={{ opacity: 1, y: 0 }}
           transition={{
             type: "spring",
-            stiffness: 360,
-            damping: 28,
+            stiffness: 540,
+            damping: 23,
           }}
         >
           <span className="app-label">Lyst</span>
@@ -1578,8 +1678,8 @@ function HomeScreen({
           whileTap={{ scale: 0.9, rotate: -3 }}
           transition={{
             type: "spring",
-            stiffness: 500,
-            damping: 26,
+            stiffness: 750,
+            damping: 21,
           }}
           onClick={onAccount}
           aria-label="Open account"
@@ -1601,8 +1701,8 @@ function HomeScreen({
           whileTap={{ scale: 0.96 }}
           transition={{
             type: "spring",
-            stiffness: 480,
-            damping: 28,
+            stiffness: 720,
+            damping: 23,
           }}
           onClick={onSearch}
         >
@@ -1616,8 +1716,8 @@ function HomeScreen({
           whileTap={{ scale: 0.96 }}
           transition={{
             type: "spring",
-            stiffness: 480,
-            damping: 28,
+            stiffness: 720,
+            damping: 23,
           }}
           onClick={onArchive}
         >
@@ -1642,8 +1742,8 @@ function HomeScreen({
           whileTap={{ scale: 0.93 }}
           transition={{
             type: "spring",
-            stiffness: 520,
-            damping: 28,
+            stiffness: 780,
+            damping: 23,
           }}
           onClick={onCreate}
         >
@@ -1688,8 +1788,8 @@ function HomeScreen({
                 transition={{
                   delay: reduceMotion ? 0 : Math.min(index * 0.028, 0.14),
                   type: "spring",
-                  stiffness: 390,
-                  damping: 31,
+                  stiffness: 585,
+                  damping: 25,
                 }}
                 whileHover={
                   reduceMotion
@@ -1715,7 +1815,12 @@ function HomeScreen({
               >
                 <span className="list-accent" aria-hidden="true" />
 
-                <span className="list-title-text">{list.title}</span>
+                <span className="list-row-copy">
+                  <span className="list-title-text">{list.title}</span>
+                  <small className="list-row-meta">
+                    Open list
+                  </small>
+                </span>
 
                 <motion.span
                   className="row-arrow"
@@ -1741,8 +1846,8 @@ function HomeScreen({
         whileTap={{ scale: 0.86, rotate: -3 }}
         transition={{
           type: "spring",
-          stiffness: 460,
-          damping: 27,
+          stiffness: 690,
+          damping: 22,
         }}
         onClick={onCreate}
       >
@@ -1759,8 +1864,8 @@ function EmptyLists({ onCreate }) {
       initial={{ opacity: 0, y: 7 }}
       animate={{ opacity: 1, y: 0 }}
     >
-      <h2>No lists yet</h2>
-      <p>Create one and start adding items.</p>
+      <h2>Start with one list</h2>
+      <p>Create a list and keep everything you need in one calm place.</p>
 
       <motion.button
         className="primary-button small-button"
@@ -1797,12 +1902,23 @@ function ListScreen({
   const [editingItem, setEditingItem] = useState(null);
   const [naturalPreview, setNaturalPreview] = useState(null);
   const [duplicatePrompt, setDuplicatePrompt] = useState(null);
+  const [itemsListenerVersion, setItemsListenerVersion] = useState(0);
+  const lastItemsRefreshRef = useRef(0);
 
   const inputRef = useRef(null);
   const longPressTimer = useRef(null);
   const longPressTriggered = useRef(false);
+  const backSwipeStartX = useRef(null);
+  const backSwipeStartY = useRef(null);
+  const backSwipeActive = useRef(false);
+  const [backSwipeProgress, setBackSwipeProgress] = useState(0);
 
   useEffect(() => {
+    let active = true;
+    let receivedSnapshot = false;
+
+    setLoading(true);
+
     const itemsQuery = query(
       collection(
         db,
@@ -1815,33 +1931,106 @@ function ListScreen({
       orderBy("createdAt", "asc"),
     );
 
-    return onSnapshot(
+    function applySnapshot(snapshot) {
+      if (!active) return;
+
+      receivedSnapshot = true;
+
+      setItems(
+        snapshot.docs.map((itemDocument) => ({
+          id: itemDocument.id,
+          ...itemDocument.data(),
+        })),
+      );
+
+      setLoading(false);
+    }
+
+    const unsubscribe = onSnapshot(
       itemsQuery,
       {
         includeMetadataChanges: true,
       },
-      (snapshot) => {
-        setItems(
-          snapshot.docs.map((itemDocument) => ({
-            id: itemDocument.id,
-            ...itemDocument.data(),
-          })),
-        );
-
-        setLoading(false);
-      },
+      applySnapshot,
       (error) => {
-        console.error(error);
+        if (!active) return;
+
+        console.error("Items listener failed:", error);
+
+        // Do not leave the list permanently stuck. The recovery fetch below
+        // can still succeed even if the live listener has a transient problem.
         setLoading(false);
 
         showToast(
           navigator.onLine
-            ? "Could not load your items."
+            ? "Refreshing your items..."
             : "No cached items are available yet.",
         );
       },
     );
-  }, [list.id, user.uid]);
+
+    const recoveryTimer = window.setTimeout(async () => {
+      if (!active || receivedSnapshot) return;
+
+      try {
+        const snapshot = await getDocs(itemsQuery);
+
+        if (!active) return;
+
+        applySnapshot(snapshot);
+      } catch (error) {
+        if (!active) return;
+
+        console.warn("Items recovery fetch failed:", error);
+        setLoading(false);
+      }
+    }, 1800);
+
+    return () => {
+      active = false;
+      window.clearTimeout(recoveryTimer);
+      unsubscribe();
+    };
+  }, [list.id, user.uid, itemsListenerVersion]);
+
+  useEffect(() => {
+    function refreshItemsListener() {
+      const now = Date.now();
+
+      // Mobile Safari/PWAs can fire focus + visibilitychange together.
+      // Throttle them so we recreate the listener only once.
+      if (now - lastItemsRefreshRef.current < 700) return;
+
+      lastItemsRefreshRef.current = now;
+      setItemsListenerVersion((version) => version + 1);
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        refreshItemsListener();
+      }
+    }
+
+    function handleOnline() {
+      refreshItemsListener();
+    }
+
+    window.addEventListener("focus", refreshItemsListener);
+    window.addEventListener("online", handleOnline);
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange,
+    );
+
+    return () => {
+      window.removeEventListener("focus", refreshItemsListener);
+      window.removeEventListener("online", handleOnline);
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange,
+      );
+    };
+  }, [list.id]);
 
   useEffect(() => {
     return () => {
@@ -1866,16 +2055,33 @@ function ListScreen({
     [activeItems, completedItems],
   );
 
+
+  const liveParserPreview = useMemo(() => {
+    const cleanText = newItem.trim();
+
+    if (!cleanText) return null;
+
+    const parsed = parseNaturalInput(cleanText);
+
+    return parsed.hasNaturalData ? parsed : null;
+  }, [newItem]);
+
   function startLongPress(event, item) {
     if (event.pointerType === "mouse" && event.button !== 0) {
       return;
     }
 
+    const target = event.currentTarget;
+    const row = target.closest(".item-row");
+
     longPressTriggered.current = false;
     window.clearTimeout(longPressTimer.current);
 
+    row?.classList.add("long-pressing");
+
     longPressTimer.current = window.setTimeout(() => {
       longPressTriggered.current = true;
+      row?.classList.remove("long-pressing");
       setEditingItem(item);
 
       if ("vibrate" in navigator) {
@@ -1884,8 +2090,11 @@ function ListScreen({
     }, 500);
   }
 
-  function cancelLongPress() {
+  function cancelLongPress(event) {
     window.clearTimeout(longPressTimer.current);
+
+    const target = event?.currentTarget;
+    target?.closest(".item-row")?.classList.remove("long-pressing");
   }
 
   function handleItemTap(item) {
@@ -2055,10 +2264,25 @@ function ListScreen({
     }
   }
 
-  async function editItem(item, text) {
-    const cleanText = text.trim();
+  async function editItem(item, changes) {
+    const cleanText = changes.text.trim();
 
     if (!cleanText) return;
+
+    const quantity =
+      changes.quantity === "" ||
+      changes.quantity === null ||
+      changes.quantity === undefined
+        ? null
+        : Number(changes.quantity);
+
+    if (
+      quantity !== null &&
+      (!Number.isFinite(quantity) || quantity < 0)
+    ) {
+      showToast("Quantity must be zero or greater.");
+      return;
+    }
 
     try {
       await updateDoc(
@@ -2073,10 +2297,13 @@ function ListScreen({
         ),
         {
           text: cleanText,
+          quantity,
+          quantityUnit: changes.quantityUnit.trim(),
+          dueAt: changes.dueAt || null,
+          rawInput: changes.rawInput || item.rawInput || cleanText,
           updatedAt: serverTimestamp(),
         },
       );
-
 
       setEditingItem(null);
       showToast("Item updated.");
@@ -2169,6 +2396,83 @@ function ListScreen({
     }
   }
 
+  function startBackSwipe(event) {
+    if (event.pointerType === "mouse") return;
+    if (event.clientX > 28) return;
+
+    backSwipeStartX.current = event.clientX;
+    backSwipeStartY.current = event.clientY;
+    backSwipeActive.current = true;
+    setBackSwipeProgress(0);
+  }
+
+  function moveBackSwipe(event) {
+    if (!backSwipeActive.current) return;
+
+    const deltaX = event.clientX - backSwipeStartX.current;
+    const deltaY = event.clientY - backSwipeStartY.current;
+
+    if (Math.abs(deltaY) > Math.abs(deltaX) * 0.9 && deltaX < 28) {
+      cancelBackSwipe();
+      return;
+    }
+
+    if (deltaX <= 0) {
+      setBackSwipeProgress(0);
+      return;
+    }
+
+    const targetDistance = Math.min(
+      170,
+      (window.innerWidth || 390) * 0.42,
+    );
+
+    setBackSwipeProgress(
+      Math.min(deltaX / targetDistance, 1),
+    );
+  }
+
+  function finishBackSwipe(event) {
+    if (!backSwipeActive.current) return;
+
+    const deltaX = event.clientX - backSwipeStartX.current;
+    const deltaY = Math.abs(
+      event.clientY - backSwipeStartY.current,
+    );
+
+    const shouldGoBack =
+      deltaX >= 92 &&
+      deltaX > deltaY * 1.35;
+
+    backSwipeActive.current = false;
+    backSwipeStartX.current = null;
+    backSwipeStartY.current = null;
+
+    if (shouldGoBack) {
+      setBackSwipeProgress(1);
+
+      if ("vibrate" in navigator) {
+        navigator.vibrate(8);
+      }
+
+      window.setTimeout(() => {
+        setBackSwipeProgress(0);
+        onBack();
+      }, 90);
+
+      return;
+    }
+
+    setBackSwipeProgress(0);
+  }
+
+  function cancelBackSwipe() {
+    backSwipeActive.current = false;
+    backSwipeStartX.current = null;
+    backSwipeStartY.current = null;
+    setBackSwipeProgress(0);
+  }
+
   return (
     <motion.main
       className="screen list-screen"
@@ -2179,12 +2483,44 @@ function ListScreen({
       animate={{ opacity: 1, x: 0 }}
       exit={{
         opacity: 0,
-        x: reduceMotion ? 0 : 12,
+        x: reduceMotion ? 0 : 16,
+      }}
+      transition={{
+        type: "spring",
+        stiffness: 820,
+        damping: 22,
+        mass: 0.55,
       }}
     >
+      <div
+        className="mobile-back-swipe-zone"
+        aria-hidden="true"
+        onPointerDown={startBackSwipe}
+        onPointerMove={moveBackSwipe}
+        onPointerUp={finishBackSwipe}
+        onPointerCancel={cancelBackSwipe}
+      />
+
+      <motion.div
+        className="mobile-back-swipe-indicator"
+        aria-hidden="true"
+        animate={{
+          opacity: backSwipeProgress > 0 ? 1 : 0,
+          x: -12 + backSwipeProgress * 34,
+          scale: 0.86 + backSwipeProgress * 0.14,
+        }}
+        transition={{
+          type: "spring",
+          stiffness: 780,
+          damping: 30,
+        }}
+      >
+        ‹
+      </motion.div>
+
       <header className="list-header">
         <motion.button
-          className="text-action"
+          className="text-action danger-outline-action"
           type="button"
           whileTap={{ scale: 0.94 }}
           onClick={onBack}
@@ -2259,7 +2595,7 @@ function ListScreen({
       </section>
 
       <section className="items">
-        {loading ? (
+        {loading && sortedItems.length === 0 ? (
           <>
             <ItemSkeleton />
             <ItemSkeleton />
@@ -2283,8 +2619,8 @@ function ListScreen({
                   transition={{
                     layout: {
                       type: "spring",
-                      stiffness: 420,
-                      damping: 34,
+                      stiffness: 630,
+                      damping: 28,
                     },
                   }}
                 >
@@ -2333,7 +2669,16 @@ function ListScreen({
                     <span className="item-main-text">{item.text}</span>
 
                     {metadata && (
-                      <small className="item-metadata">{metadata}</small>
+                      <span className="metadata-pills">
+                        {getItemMetadataPills(item).map((pill) => (
+                          <small
+                            key={pill.key}
+                            className={`metadata-pill ${pill.tone}`}
+                          >
+                            {pill.label}
+                          </small>
+                        ))}
+                      </span>
                     )}
                   </button>
 
@@ -2362,11 +2707,44 @@ function ListScreen({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
           >
-            <h2>Nothing here</h2>
-            <p>Add your first item below.</p>
+            <h2>Nothing here yet</h2>
+            <p>Add something below and Lyst will keep it tidy.</p>
           </motion.div>
         )}
       </section>
+
+      <AnimatePresence>
+        {liveParserPreview && (
+          <motion.div
+            className="live-parser-preview"
+            initial={{ opacity: 0, y: 8, scale: 0.985 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 6, scale: 0.985 }}
+            transition={{
+              type: "spring",
+              stiffness: 585,
+              damping: 25,
+            }}
+          >
+            <span className="live-parser-dot" />
+
+            <span className="live-parser-copy">
+              <strong>{liveParserPreview.text}</strong>
+              <small>
+                {[
+                  formatQuantity(
+                    liveParserPreview.quantity,
+                    liveParserPreview.quantityUnit,
+                  ),
+                  formatDueDate(liveParserPreview.dueAt),
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </small>
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <form className="add-item-bar" onSubmit={handleAddItem}>
         <input
@@ -2394,7 +2772,7 @@ function ListScreen({
           <EditItemSheet
             item={editingItem}
             onClose={() => setEditingItem(null)}
-            onSave={(text) => editItem(editingItem, text)}
+            onSave={(changes) => editItem(editingItem, changes)}
           />
         )}
 
@@ -2564,15 +2942,21 @@ function SearchSheet({
                 type="button"
                 onClick={() => onOpenList(result.list)}
               >
-                <strong>{result.list.title}</strong>
+                <strong>
+                  {renderHighlightedText(result.list.title, search)}
+                </strong>
 
                 {result.matchingItems.slice(0, 3).map((item) => (
-                  <span key={item.id}>{item.text}</span>
+                  <span key={item.id} className="search-result-item">
+                    {renderHighlightedText(item.text, search)}
+                  </span>
                 ))}
 
                 {result.listMatches &&
                   result.matchingItems.length === 0 && (
-                    <span>List title matches</span>
+                    <span className="search-result-item">
+                      List title matches
+                    </span>
                   )}
               </button>
             ))
@@ -2618,7 +3002,11 @@ function DuplicateItemSheet({
             </p>
           </div>
 
-          <button type="button" onClick={onClose}>
+          <button
+            className="danger-outline-action"
+            type="button"
+            onClick={onClose}
+          >
             Cancel
           </button>
         </header>
@@ -2749,7 +3137,11 @@ function NaturalInputSheet({
             </p>
           </div>
 
-          <button type="button" onClick={onClose}>
+          <button
+            className="danger-outline-action"
+            type="button"
+            onClick={onClose}
+          >
             Cancel
           </button>
         </header>
@@ -2924,7 +3316,19 @@ function EditListSheet({ list, onClose, onSave }) {
         <header className="sheet-header">
           <h2>Rename list</h2>
 
-          <button type="button" onClick={onClose}>
+          <button
+            className="danger-outline-action"
+            type="button"
+            onPointerDown={(event) => event.stopPropagation()}
+            onPointerUp={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+
+              window.setTimeout(() => {
+                onClose();
+              }, 90);
+            }}
+          >
             Cancel
           </button>
         </header>
@@ -2951,34 +3355,223 @@ function EditListSheet({ list, onClose, onSave }) {
 }
 
 function EditItemSheet({ item, onClose, onSave }) {
-  const [text, setText] = useState(item.text);
+  const [text, setText] = useState(item.text || "");
+  const [quantity, setQuantity] = useState(item.quantity ?? "");
+  const [quantityUnit, setQuantityUnit] = useState(
+    item.quantityUnit || "",
+  );
+  const [dateValue, setDateValue] = useState(
+    formatDateForInput(item.dueAt),
+  );
+  const [timeValue, setTimeValue] = useState(
+    formatTimeForInput(item.dueAt) || "12:00",
+  );
+  const [validationMessage, setValidationMessage] = useState("");
+
+  const previewDueAt = combineLocalDateAndTime(
+    dateValue,
+    timeValue,
+  );
+  const dueLabel = formatDueDate(previewDueAt);
+
+  function submitEdit(event) {
+    event.preventDefault();
+
+    const cleanText = text.trim();
+
+    if (!cleanText) return;
+
+    const numericQuantity =
+      quantity === "" ? null : Number(quantity);
+
+    if (
+      numericQuantity !== null &&
+      (!Number.isFinite(numericQuantity) || numericQuantity < 0)
+    ) {
+      setValidationMessage("Quantity must be zero or greater.");
+      return;
+    }
+
+    const dueAt = combineLocalDateAndTime(
+      dateValue,
+      timeValue,
+    );
+
+    if (dateValue && !dueAt) {
+      setValidationMessage("Choose a valid date and time.");
+      return;
+    }
+
+    setValidationMessage("");
+
+    onSave({
+      text: cleanText,
+      quantity: numericQuantity,
+      quantityUnit,
+      dueAt,
+      rawInput: item.rawInput || cleanText,
+    });
+  }
 
   return (
     <Sheet onClose={onClose}>
       <form
-        className="sheet-content"
-        onSubmit={(event) => {
-          event.preventDefault();
-          onSave(text);
-        }}
+        className="sheet-content edit-item-sheet"
+        onSubmit={submitEdit}
       >
         <div className="sheet-handle" />
 
         <header className="sheet-header">
-          <h2>Edit item</h2>
+          <div>
+            <h2>Edit item</h2>
+            <p className="sheet-subtitle">
+              Change the item, quantity, date or time.
+            </p>
+          </div>
 
-          <button type="button" onClick={onClose}>
+          <button
+            className="danger-outline-action"
+            type="button"
+            onPointerDown={(event) => event.stopPropagation()}
+            onPointerUp={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+
+              window.setTimeout(() => {
+                onClose();
+              }, 90);
+            }}
+          >
             Cancel
           </button>
         </header>
 
-        <input
-          className="sheet-input"
-          autoFocus
-          value={text}
-          maxLength={160}
-          onChange={(event) => setText(event.target.value)}
-        />
+        <label className="natural-field">
+          <span>Item</span>
+
+          <input
+            className="sheet-input"
+            autoFocus
+            value={text}
+            maxLength={160}
+            onChange={(event) => setText(event.target.value)}
+          />
+        </label>
+
+        <div className="natural-grid">
+          <label className="natural-field">
+            <span>Quantity</span>
+
+            <input
+              className="sheet-input"
+              type="number"
+              min="0"
+              step="any"
+              inputMode="decimal"
+              value={quantity}
+              placeholder="None"
+              onChange={(event) => setQuantity(event.target.value)}
+            />
+          </label>
+
+          <label className="natural-field">
+            <span>Unit</span>
+
+            <input
+              className="sheet-input"
+              value={quantityUnit}
+              placeholder="Optional"
+              onChange={(event) =>
+                setQuantityUnit(event.target.value)
+              }
+            />
+          </label>
+        </div>
+
+        <div className="natural-grid edit-date-time-grid">
+          <label className="natural-field">
+            <span>Date</span>
+
+            <div className="pretty-native-field">
+              <span className="pretty-native-value">
+                {formatCompactDateInput(dateValue)}
+              </span>
+
+              <span className="pretty-native-cue" aria-hidden="true">
+                ▾
+              </span>
+
+              <input
+                className="pretty-native-input"
+                type="date"
+                value={dateValue}
+                aria-label="Due date"
+                onChange={(event) => {
+                  setDateValue(event.target.value);
+
+                  if (!event.target.value) {
+                    setValidationMessage("");
+                  }
+                }}
+              />
+            </div>
+          </label>
+
+          <label className="natural-field">
+            <span>Time</span>
+
+            <div
+              className={`pretty-native-field ${
+                !dateValue ? "disabled" : ""
+              }`}
+            >
+              <span className="pretty-native-value">
+                {dateValue
+                  ? formatCompactTimeInput(timeValue)
+                  : "Select date first"}
+              </span>
+
+              <span className="pretty-native-cue" aria-hidden="true">
+                ▾
+              </span>
+
+              <input
+                className="pretty-native-input"
+                type="time"
+                value={timeValue}
+                disabled={!dateValue}
+                aria-label="Due time"
+                onChange={(event) => setTimeValue(event.target.value)}
+              />
+            </div>
+          </label>
+        </div>
+
+        {dueLabel && (
+          <div className="due-chip-row">
+            <span className="due-chip">
+              {dueLabel}
+            </span>
+
+            {dateValue && (
+              <button
+                className="remove-due-link"
+                type="button"
+                onClick={() => {
+                  setDateValue("");
+                  setTimeValue("12:00");
+                  setValidationMessage("");
+                }}
+              >
+                Remove due date
+              </button>
+            )}
+          </div>
+        )}
+
+        {validationMessage && (
+          <p className="natural-warning">{validationMessage}</p>
+        )}
 
         <motion.button
           className="primary-button"
@@ -2986,7 +3579,7 @@ function EditItemSheet({ item, onClose, onSave }) {
           disabled={!text.trim()}
           whileTap={{ scale: 0.975 }}
         >
-          Save
+          Save changes
         </motion.button>
       </form>
     </Sheet>
@@ -3078,7 +3671,7 @@ function AccountSheet({
 }) {
   return (
     <Sheet onClose={onClose}>
-      <div className="sheet-content">
+      <div className="sheet-content account-sheet">
         <div className="sheet-handle" />
 
         <header className="sheet-header">
@@ -3091,30 +3684,29 @@ function AccountSheet({
 
         <div className="account-row">
           <div className="account-avatar">
-            {user.photoURL ? (
-              <img
-                src={user.photoURL}
-                alt=""
-                referrerPolicy="no-referrer"
-              />
-            ) : (
-              getInitials(user)
-            )}
+            {getEmailInitial(user)}
           </div>
 
-          <div>
-            <strong>{user.displayName || "Lyst user"}</strong>
-            <span>{user.email}</span>
+          <div className="account-copy">
+            <strong>{user.email}</strong>
+
+            <span
+              className={`account-status ${
+                isOnline ? "online" : "offline"
+              }`}
+            >
+              {isOnline ? "Online" : "Offline"}
+            </span>
           </div>
         </div>
 
         <div className="offline-access-note">
-          <strong>{isOnline ? "Online" : "Offline"}</strong>
-          <span>Offline access lasts for 60 days.</span>
+          <strong>Offline access</strong>
+          <span>Available for up to 60 days after an online refresh.</span>
         </div>
 
         <motion.button
-          className="primary-button"
+          className="primary-button account-signout-button"
           type="button"
           whileTap={{ scale: 0.975 }}
           onClick={onSignOut}
@@ -3127,6 +3719,56 @@ function AccountSheet({
 }
 
 function Sheet({ children, onClose }) {
+  const dragStartY = useRef(null);
+  const dragStartX = useRef(null);
+  const [dragY, setDragY] = useState(0);
+
+  function beginSheetGesture(event) {
+    if (event.pointerType === "mouse") return;
+
+    dragStartY.current = event.clientY;
+    dragStartX.current = event.clientX;
+    setDragY(0);
+
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }
+
+  function moveSheetGesture(event) {
+    if (dragStartY.current === null) return;
+
+    const deltaY = event.clientY - dragStartY.current;
+    const deltaX = Math.abs(event.clientX - dragStartX.current);
+
+    if (deltaY <= 0 || deltaX > deltaY) {
+      setDragY(0);
+      return;
+    }
+
+    setDragY(Math.min(deltaY, 140));
+  }
+
+  function finishSheetGesture() {
+    if (dragStartY.current === null) return;
+
+    const shouldClose = dragY >= 72;
+
+    dragStartY.current = null;
+    dragStartX.current = null;
+
+    if (shouldClose) {
+      setDragY(0);
+
+      if ("vibrate" in navigator) {
+        navigator.vibrate(7);
+      }
+
+      onClose();
+      return;
+    }
+
+    setDragY(0);
+  }
+
   return (
     <motion.div
       className="sheet-backdrop"
@@ -3141,15 +3783,29 @@ function Sheet({ children, onClose }) {
     >
       <motion.div
         className="sheet"
-        initial={{ y: "100%" }}
-        animate={{ y: 0 }}
-        exit={{ y: "100%" }}
+        initial={{ y: "100%", scale: 0.985 }}
+        animate={{ y: dragY, scale: 1 }}
+        exit={{ y: "100%", scale: 0.985 }}
         transition={{
           type: "spring",
-          stiffness: 380,
-          damping: 35,
+          stiffness: 525,
+          damping: 25,
+          mass: 0.68,
         }}
       >
+        <div
+          className="sheet-gesture-zone"
+          aria-hidden="true"
+          onPointerDown={beginSheetGesture}
+          onPointerMove={moveSheetGesture}
+          onPointerUp={finishSheetGesture}
+          onPointerCancel={() => {
+            dragStartY.current = null;
+            dragStartX.current = null;
+            setDragY(0);
+          }}
+        />
+
         {children}
       </motion.div>
     </motion.div>
@@ -3169,7 +3825,7 @@ function UpdateBanner({ visible, updating, onUpdate }) {
           initial={{ opacity: 0, y: -12, scale: 0.97 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: -8, scale: 0.98 }}
-          transition={{ type: "spring", stiffness: 380, damping: 30 }}
+          transition={{ type: "spring", stiffness: 570, damping: 25 }}
         >
           <div>
             <strong>Lyst update ready</strong>
@@ -3238,127 +3894,49 @@ function OfflineExpiredScreen({
   );
 }
 
-function LoadingScreen({ reduceMotion }) {
-  const dots = [
-    { emoji: "🌸", className: "loading-dot dot-one" },
-    { emoji: "🫧", className: "loading-dot dot-two" },
-    { emoji: "⭐", className: "loading-dot dot-three" },
-    { emoji: "🍬", className: "loading-dot dot-four" },
-  ];
-
+function PastelLoader({ label = "Loading Lyst" }) {
   return (
-    <main className="loading-page">
+    <main className="pastel-loader-page">
       <motion.div
-        className="loading-card"
+        className="pastel-loader-wrap"
         initial={{ opacity: 0, scale: 0.96 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{
           type: "spring",
-          stiffness: 300,
-          damping: 27,
+          stiffness: 480,
+          damping: 23,
         }}
       >
-        <div className="loading-scene" aria-hidden="true">
-          {dots.map((dot, index) => (
-            <motion.span
-              key={dot.className}
-              className={dot.className}
-              animate={
-                reduceMotion
-                  ? {}
-                  : {
-                      y: [0, -10 - index * 2, 0],
-                      rotate: [0, index % 2 === 0 ? 8 : -8, 0],
-                      scale: [1, 1.08, 1],
-                    }
-              }
-              transition={{
-                duration: 1.8 + index * 0.18,
-                repeat: Infinity,
-                ease: "easeInOut",
-                delay: index * 0.12,
-              }}
-            >
-              {dot.emoji}
-            </motion.span>
-          ))}
-
-          <motion.div
-            className="loading-logo-bubble"
-            animate={
-              reduceMotion
-                ? {}
-                : {
-                    rotate: [0, 2, -2, 0],
-                    scale: [1, 1.025, 1],
-                  }
-            }
-            transition={{
-              duration: 2.2,
-              repeat: Infinity,
-              ease: "easeInOut",
-            }}
-          >
-            L
-          </motion.div>
-        </div>
-
-        <motion.strong
-          className="loading-word"
-          animate={
-            reduceMotion
-              ? {}
-              : {
-                  letterSpacing: ["-0.06em", "-0.02em", "-0.06em"],
-                  opacity: [0.72, 1, 0.72],
-                }
-          }
-          transition={{
-            duration: 2,
-            repeat: Infinity,
-            ease: "easeInOut",
-          }}
-        >
-          Lyst
-        </motion.strong>
-
-        <motion.p
-          className="loading-caption"
-          animate={
-            reduceMotion
-              ? {}
-              : {
-                  opacity: [0.48, 0.9, 0.48],
-                }
-          }
-          transition={{
-            duration: 1.7,
-            repeat: Infinity,
-            ease: "easeInOut",
-          }}
-        >
-          getting your little world ready ✨
-        </motion.p>
-
-        <div className="loading-bar" aria-hidden="true">
+        <div className="pastel-loader-ring" aria-hidden="true">
           <motion.span
-            animate={
-              reduceMotion
-                ? { x: 0 }
-                : {
-                    x: ["-105%", "230%"],
-                  }
-            }
+            className="pastel-loader-orbit"
+            animate={{ rotate: 360 }}
             transition={{
-              duration: 1.7,
+              duration: 0.55,
               repeat: Infinity,
-              ease: "easeInOut",
+              ease: "linear",
             }}
           />
         </div>
+
+        <motion.p
+          className="pastel-loader-label"
+          animate={{ opacity: [0.5, 1, 0.5] }}
+          transition={{
+            duration: 0.8,
+            repeat: Infinity,
+            ease: "easeInOut",
+          }}
+        >
+          {label}
+        </motion.p>
       </motion.div>
     </main>
   );
+}
+
+function LoadingScreen() {
+  return <PastelLoader label="Getting your lists ready" />;
 }
 
 function SetupScreen() {
@@ -3490,6 +4068,11 @@ const styles = `
 
   button {
     color: inherit;
+    transition:
+      transform 80ms ease,
+      background-color 80ms ease,
+      border-color 80ms ease,
+      box-shadow 80ms ease;
   }
 
   h1,
@@ -3571,8 +4154,8 @@ const styles = `
     font-size: 0.82rem;
     font-weight: 800;
     transition:
-      border-color 180ms ease,
-      box-shadow 180ms ease;
+      border-color 90ms ease,
+      box-shadow 90ms ease;
   }
 
   .avatar-button:hover {
@@ -3656,8 +4239,8 @@ const styles = `
     -webkit-user-select: none;
     user-select: none;
     transition:
-      background-color 180ms ease,
-      box-shadow 180ms ease;
+      background-color 90ms ease,
+      box-shadow 90ms ease;
   }
 
   .list-row:hover {
@@ -3671,8 +4254,8 @@ const styles = `
     border-radius: 999px;
     transform: scaleY(0.72);
     transition:
-      transform 190ms ease,
-      width 190ms ease;
+      transform 95ms ease,
+      width 95ms ease;
   }
 
   .list-row:hover .list-accent {
@@ -3728,11 +4311,32 @@ const styles = `
     white-space: nowrap;
   }
 
+  .list-row-copy {
+    display: grid;
+    min-width: 0;
+    flex: 1;
+    gap: 3px;
+  }
+
+  .list-row-meta {
+    color: var(--muted);
+    font-size: 0.64rem;
+    font-weight: 560;
+  }
+
+  .list-row,
+  .item-row {
+    transition:
+      transform 75ms ease,
+      background-color 75ms ease,
+      box-shadow 75ms ease;
+  }
+
   .row-arrow {
     margin-left: auto;
     color: #A9A0B5;
     font-size: 1.5rem;
-    transition: color 180ms ease;
+    transition: color 90ms ease;
   }
 
   .list-row:hover .row-arrow {
@@ -3815,6 +4419,23 @@ const styles = `
     font-weight: 680;
   }
 
+  .danger-outline-action {
+    min-height: 34px;
+    padding: 0 11px !important;
+    border: 1px solid #EBC7D3 !important;
+    border-radius: 10px !important;
+    color: #9A5E72 !important;
+    background: var(--rose-soft) !important;
+    box-shadow: 0 3px 10px rgba(154, 94, 114, 0.055);
+    font-weight: 700 !important;
+  }
+
+  .danger-outline-action:hover,
+  .danger-outline-action:active {
+    border-color: #DFAFBE !important;
+    background: #F9E4EC !important;
+  }
+
   .menu-container {
     position: relative;
   }
@@ -3835,23 +4456,30 @@ const styles = `
     z-index: 20;
     top: 40px;
     right: 0;
-    width: 175px;
-    padding: 5px;
+    width: 180px;
+    padding: 6px;
     border: 1px solid #E8E0EC;
-    border-radius: 13px;
-    background: #FFFDFC;
-    box-shadow: 0 16px 42px rgba(0, 0, 0, 0.12);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 16px 42px rgba(74, 59, 91, 0.12);
+    backdrop-filter: blur(14px);
   }
 
   .context-menu button {
     width: 100%;
+    min-height: 42px;
     padding: 10px;
     text-align: left;
     border: 0;
-    border-radius: 9px;
+    border-radius: 10px;
     background: transparent;
     font-size: 0.78rem;
     font-weight: 620;
+  }
+
+  .context-menu button:hover,
+  .context-menu button:active {
+    background: var(--lavender-soft);
   }
 
   .context-menu .danger-action {
@@ -3933,7 +4561,7 @@ const styles = `
     transform: scaleX(0);
     transform-origin: left;
     background: currentColor;
-    transition: transform 250ms ease;
+    transition: transform 125ms ease;
   }
 
   .item-metadata {
@@ -3943,9 +4571,60 @@ const styles = `
     line-height: 1.35;
   }
 
+  .metadata-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 1px;
+  }
+
+  .metadata-pill {
+    display: inline-flex;
+    min-height: 20px;
+    align-items: center;
+    padding: 0 7px;
+    border-radius: 999px;
+    font-size: 0.6rem;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .metadata-pill.mint {
+    color: #4D695B;
+    background: var(--mint-soft);
+  }
+
+  .metadata-pill.peach {
+    color: #7A5B4A;
+    background: var(--peach-soft);
+  }
+
+  .metadata-pill.sky {
+    color: #52697E;
+    background: var(--sky-soft);
+  }
+
+  .metadata-pill.lavender {
+    color: #625777;
+    background: var(--lavender-soft);
+  }
+
+  .metadata-pill.rose {
+    color: #8A596B;
+    background: var(--rose-soft);
+  }
+
   .item-row.completed .item-main-text,
   .item-row.completed .item-metadata {
     color: #9991A2;
+  }
+
+  .item-row.completed {
+    opacity: 0.72;
+  }
+
+  .item-row.completed .metadata-pill {
+    opacity: 0.72;
   }
 
   .item-row.completed .item-main-text::after {
@@ -3985,10 +4664,13 @@ const styles = `
     align-items: center;
     margin: auto;
     padding: 5px 5px 5px 14px;
-    border: 1px solid #E1D8E6;
-    border-radius: 16px;
-    background: #FFFDFC;
-    box-shadow: 0 11px 32px rgba(0, 0, 0, 0.11);
+    border: 1px solid #E5DDEA;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow:
+      0 10px 28px rgba(72, 59, 82, 0.09),
+      0 2px 8px rgba(72, 59, 82, 0.035);
+    backdrop-filter: blur(14px);
   }
 
   .add-item-bar input {
@@ -4014,6 +4696,180 @@ const styles = `
     opacity: 0.25;
   }
 
+  .live-parser-preview {
+    position: fixed;
+    z-index: 9;
+    right: max(18px, calc((100vw - 620px) / 2 + 18px));
+    bottom: max(72px, calc(env(safe-area-inset-bottom) + 62px));
+    left: max(18px, calc((100vw - 620px) / 2 + 18px));
+    display: flex;
+    max-width: 584px;
+    gap: 9px;
+    align-items: center;
+    margin: auto;
+    padding: 9px 11px;
+    border: 1px solid #E1D8ED;
+    border-radius: 13px;
+    background: rgba(244, 240, 252, 0.96);
+    box-shadow: 0 8px 22px rgba(78, 63, 94, 0.08);
+    backdrop-filter: blur(12px);
+  }
+
+  .live-parser-dot {
+    width: 8px;
+    height: 8px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background: var(--mint);
+  }
+
+  .live-parser-copy {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+  }
+
+  .live-parser-copy strong {
+    overflow: hidden;
+    font-size: 0.7rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .live-parser-copy small {
+    color: var(--muted);
+    font-size: 0.61rem;
+  }
+
+  .mobile-back-swipe-zone,
+  .mobile-back-swipe-indicator {
+    display: none;
+  }
+
+  .clear-due-button {
+    display: none;
+  }
+
+  .edit-item-due-preview {
+    margin-bottom: 10px;
+  }
+
+  .due-chip-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+    margin: 2px 0 8px;
+  }
+
+  .due-chip {
+    display: inline-flex;
+    min-height: 30px;
+    align-items: center;
+    padding: 0 10px;
+    border-radius: 999px;
+    color: #665A78;
+    background: var(--lavender-soft);
+    font-size: 0.68rem;
+    font-weight: 700;
+  }
+
+  .remove-due-link {
+    flex: 0 0 auto;
+    padding: 6px 2px;
+    border: 0;
+    color: #9B6274;
+    background: transparent;
+    font-size: 0.66rem;
+    font-weight: 700;
+  }
+
+  .edit-item-sheet {
+    padding-bottom: max(24px, calc(env(safe-area-inset-bottom) + 18px));
+    scroll-padding-bottom: 96px;
+  }
+
+  .edit-item-sheet .edit-date-time-grid {
+    margin-bottom: 15px;
+  }
+
+  .edit-item-sheet .primary-button {
+    position: relative;
+    z-index: 1;
+    flex-shrink: 0;
+    margin-top: 14px;
+  }
+
+  .edit-item-sheet .clear-due-button + .natural-warning,
+  .edit-item-sheet .parsed-date + .clear-due-button {
+    margin-top: 0;
+  }
+
+  .pretty-native-field {
+    position: relative;
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    min-height: 45px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 0 12px;
+    overflow: hidden;
+    border: 1px solid #E1D8E6;
+    border-radius: 12px;
+    background: #FFFFFF;
+    box-shadow: 0 1px 0 rgba(70, 57, 83, 0.02);
+  }
+
+  .pretty-native-field:focus-within {
+    border-color: #CDBEED;
+    background: var(--lavender-soft);
+    box-shadow: 0 0 0 4px rgba(221, 211, 246, 0.34);
+  }
+
+  .pretty-native-field.disabled {
+    opacity: 0.48;
+  }
+
+  .pretty-native-value {
+    min-width: 0;
+    overflow: hidden;
+    color: #4A4355;
+    font-size: 0.78rem;
+    font-weight: 670;
+    line-height: 1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pretty-native-cue {
+    flex: 0 0 auto;
+    color: #A79DB0;
+    font-size: 0.68rem;
+    line-height: 1;
+  }
+
+  .pretty-native-input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    opacity: 0.001;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  .pretty-native-input:disabled {
+    cursor: default;
+  }
+
+  .sheet-gesture-zone {
+    display: none;
+  }
+
   .sheet-backdrop {
     position: fixed;
     z-index: 100;
@@ -4025,8 +4881,8 @@ const styles = `
     align-items: flex-end;
     justify-content: center;
     padding: 8px;
-    background: rgba(72, 59, 82, 0.18);
-    backdrop-filter: blur(5px);
+    background: rgba(72, 59, 82, 0.16);
+    backdrop-filter: blur(7px);
   }
 
   .sheet {
@@ -4049,6 +4905,7 @@ const styles = `
     margin: 0 auto 17px;
     border-radius: 99px;
     background: var(--lavender);
+    box-shadow: 0 2px 6px rgba(92, 74, 119, 0.08);
   }
 
   .sheet-header {
@@ -4096,16 +4953,23 @@ const styles = `
   .auth-form input,
   .add-item-bar input {
     transition:
-      border-color 180ms ease,
-      box-shadow 180ms ease,
-      background-color 180ms ease;
+      border-color 90ms ease,
+      box-shadow 90ms ease,
+      background-color 90ms ease;
   }
 
   .sheet-input:focus,
   .auth-form input:focus {
-    border-color: #BFD8F1;
-    background: var(--sky-soft);
-    box-shadow: 0 0 0 4px rgba(216, 233, 250, 0.55);
+    border-color: #CDBEED;
+    background: var(--lavender-soft);
+    box-shadow: 0 0 0 4px rgba(221, 211, 246, 0.38);
+  }
+
+  .add-item-bar:focus-within {
+    border-color: #CDBEED;
+    box-shadow:
+      0 11px 30px rgba(76, 63, 92, 0.11),
+      0 0 0 4px rgba(221, 211, 246, 0.24);
   }
 
   .duplicate-comparison {
@@ -4173,8 +5037,17 @@ const styles = `
 
   .natural-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 9px;
+  }
+
+  .natural-grid > * {
+    min-width: 0;
+  }
+
+  .natural-grid .sheet-input {
+    min-width: 0;
+    max-width: 100%;
   }
 
   .parsed-date {
@@ -4281,6 +5154,17 @@ const styles = `
     font-size: 0.74rem;
   }
 
+  .search-result mark {
+    padding: 0 2px;
+    border-radius: 4px;
+    color: inherit;
+    background: var(--butter);
+  }
+
+  .search-result-item {
+    padding-left: 4px;
+  }
+
   .confirmation-content h2 {
     margin-bottom: 8px;
     font-size: 1.35rem;
@@ -4314,24 +5198,66 @@ const styles = `
 
   .account-row {
     display: flex;
-    gap: 11px;
+    gap: 12px;
     align-items: center;
-    margin-bottom: 12px;
-    padding: 11px 0;
-    border-top: 1px solid #EEE8F1;
-    border-bottom: 1px solid #EEE8F1;
+    margin-bottom: 14px;
+    padding: 12px;
+    border: 1px solid #E5DDEA;
+    border-radius: 15px;
+    background: var(--lavender-soft);
   }
 
   .account-avatar {
     display: grid;
-    width: 41px;
-    height: 41px;
+    width: 42px;
+    height: 42px;
+    flex: 0 0 auto;
     place-items: center;
     overflow: hidden;
+    border: 1px solid #CBBEEA;
     border-radius: 50%;
-    color: #FFFDFC;
-    background: #3B3650;
-    font-size: 0.7rem;
+    color: #4A4260;
+    background: var(--lavender);
+    font-size: 0.82rem;
+    font-weight: 800;
+  }
+
+  .account-copy {
+    display: grid;
+    min-width: 0;
+    gap: 7px;
+  }
+
+  .account-copy strong {
+    overflow: hidden;
+    font-size: 0.78rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .account-status {
+    display: inline-flex;
+    width: fit-content;
+    min-height: 22px;
+    align-items: center;
+    padding: 0 8px;
+    border-radius: 999px;
+    font-size: 0.58rem;
+    font-weight: 700;
+  }
+
+  .account-status.online {
+    background: var(--mint-soft);
+  }
+
+  .account-status.offline {
+    background: var(--rose-soft);
+  }
+
+  .account-signout-button {
+    color: #7C5A66;
+    background: var(--rose-soft);
+    box-shadow: none;
   }
 
   .account-row strong,
@@ -4711,29 +5637,10 @@ const styles = `
   .loading-scene {
     position: relative;
     width: 128px;
-    height: 104px;
-    margin-bottom: 3px;
+    height: 82px;
+    margin-bottom: 8px;
   }
 
-  .loading-logo-bubble {
-    position: absolute;
-    top: 23px;
-    left: 50%;
-    display: grid;
-    width: 58px;
-    height: 58px;
-    place-items: center;
-    transform: translateX(-50%);
-    border: 1px solid #D4C7EE;
-    border-radius: 20px;
-    color: #4B435D;
-    background: var(--lavender);
-    box-shadow:
-      0 10px 25px rgba(94, 78, 119, 0.14),
-      inset 0 1px 0 rgba(255, 255, 255, 0.65);
-    font-size: 1.45rem;
-    font-weight: 850;
-  }
 
   .loading-dot {
     position: absolute;
@@ -4761,14 +5668,14 @@ const styles = `
   }
 
   .dot-three {
-    bottom: 0;
-    left: 12px;
+    bottom: 3px;
+    left: 18px;
     background: var(--butter-soft);
   }
 
   .dot-four {
-    right: 9px;
-    bottom: 2px;
+    right: 16px;
+    bottom: 5px;
     background: var(--peach-soft);
   }
 
@@ -4818,11 +5725,12 @@ const styles = `
     width: fit-content;
     max-width: calc(100vw - 28px);
     margin: auto;
-    border-radius: 11px;
+    border-radius: 13px;
     color: #40384F;
-    background: #E5DCF7;
+    background: rgba(229, 220, 247, 0.96);
     border: 1px solid #CFC0ED;
-    box-shadow: 0 10px 28px rgba(82, 65, 104, 0.14);
+    box-shadow: 0 12px 30px rgba(82, 65, 104, 0.13);
+    backdrop-filter: blur(12px);
   }
 
   .toast {
@@ -4909,6 +5817,102 @@ const styles = `
   }
 
   @media (max-width: 600px) {
+    .add-item-bar {
+      transition:
+        bottom 90ms ease,
+        box-shadow 90ms ease,
+        border-color 90ms ease;
+    }
+
+    .edit-item-sheet {
+      padding-bottom: max(26px, calc(env(safe-area-inset-bottom) + 20px));
+    }
+
+    .edit-item-sheet .primary-button {
+      margin-top: 16px;
+    }
+
+    .edit-date-time-grid {
+      display: grid;
+      grid-template-columns: calc((100% - 8px) / 2) calc((100% - 8px) / 2);
+      gap: 8px;
+      width: 100%;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .edit-date-time-grid .natural-field {
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+    }
+
+    .edit-date-time-grid .sheet-input {
+      display: block;
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
+      inline-size: 100%;
+      min-inline-size: 0;
+      max-inline-size: 100%;
+      box-sizing: border-box;
+      overflow: hidden;
+      padding-right: 10px;
+      padding-left: 10px;
+      font-size: 0.78rem;
+    }
+
+
+    .mobile-back-swipe-zone {
+      position: fixed;
+      z-index: 45;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      display: block;
+      width: 28px;
+      touch-action: pan-y;
+    }
+
+    .mobile-back-swipe-indicator {
+      position: fixed;
+      z-index: 46;
+      top: 50%;
+      left: 6px;
+      display: grid;
+      width: 32px;
+      height: 48px;
+      place-items: center;
+      transform: translateY(-50%);
+      border: 1px solid #DDD3EE;
+      border-radius: 13px;
+      color: #5A516C;
+      background: rgba(244, 240, 252, 0.94);
+      box-shadow: 0 8px 20px rgba(79, 64, 96, 0.10);
+      font-size: 1.55rem;
+      font-weight: 520;
+      pointer-events: none;
+      backdrop-filter: blur(10px);
+    }
+
+    .sheet {
+      position: relative;
+    }
+
+    .sheet-gesture-zone {
+      position: absolute;
+      z-index: 5;
+      top: 0;
+      right: 0;
+      left: 0;
+      display: block;
+      height: 31px;
+      touch-action: none;
+      cursor: grab;
+    }
+
+
     .screen {
       padding-right: 15px;
       padding-left: 15px;
@@ -4931,12 +5935,734 @@ const styles = `
     }
   }
 
+
+  @media (max-width: 370px) {
+    .natural-grid:not(.edit-date-time-grid) {
+      grid-template-columns: 1fr;
+      gap: 0;
+    }
+
+    .edit-date-time-grid {
+      grid-template-columns: calc((100% - 6px) / 2) calc((100% - 6px) / 2);
+      gap: 6px;
+    }
+
+    .edit-date-time-grid .sheet-input {
+      padding-right: 7px;
+      padding-left: 7px;
+      font-size: 0.73rem;
+    }
+  }
+
+
+  /* Clean authentication and loading presentation */
+  .auth-page-clean {
+    overflow: hidden;
+    background: #FFFFFF;
+  }
+
+  .auth-page-clean::before,
+  .auth-page-clean::after {
+    width: 210px;
+    height: 210px;
+    opacity: 0.5;
+    filter: blur(18px);
+  }
+
+  .auth-page-clean::before {
+    top: -125px;
+    left: -120px;
+    background: rgba(221, 211, 246, 0.34);
+  }
+
+  .auth-page-clean::after {
+    right: -125px;
+    bottom: -135px;
+    background: rgba(207, 234, 223, 0.32);
+  }
+
+  .auth-panel-clean {
+    width: min(100%, 350px);
+    padding: 23px 20px 20px;
+    border-radius: 22px;
+    box-shadow:
+      0 18px 48px rgba(78, 65, 92, 0.09),
+      0 2px 8px rgba(78, 65, 92, 0.035);
+  }
+
+  .auth-panel-clean::before {
+    display: none;
+  }
+
+  .auth-brand-clean {
+    display: flex;
+    gap: 11px;
+    align-items: center;
+    margin-bottom: 26px;
+  }
+
+  .auth-monogram {
+    display: grid;
+    width: 42px;
+    height: 42px;
+    flex: 0 0 auto;
+    place-items: center;
+    border: 1px solid #D7CCE9;
+    border-radius: 13px;
+    color: #4A4260;
+    background: var(--lavender-soft);
+    font-size: 1.08rem;
+    font-weight: 820;
+    letter-spacing: -0.05em;
+  }
+
+  .auth-heading-clean {
+    margin-bottom: 18px;
+  }
+
+  .auth-heading-clean h1 {
+    margin-bottom: 7px;
+    font-size: 1.55rem;
+  }
+
+  .auth-heading-clean p {
+    max-width: 285px;
+    font-size: 0.78rem;
+  }
+
+  .google-button-clean {
+    min-height: 45px;
+    border-color: #DDE7E1;
+    background: #FFFFFF;
+    box-shadow: none;
+  }
+
+  .google-button-clean:active {
+    background: var(--mint-soft);
+  }
+
+  .auth-form-clean {
+    gap: 10px;
+  }
+
+  .auth-form-clean input {
+    padding-left: 13px;
+    background: #FFFFFF;
+  }
+
+  .auth-form-clean input:focus {
+    border-color: #CDBEED;
+    background: var(--lavender-soft);
+    box-shadow: 0 0 0 4px rgba(221, 211, 246, 0.32);
+  }
+
+  .auth-form-clean .auth-primary-button {
+    margin-top: 3px;
+    background: var(--lavender);
+    box-shadow: 0 7px 17px rgba(91, 74, 120, 0.09);
+  }
+
+  .auth-page-clean .forgot-button {
+    padding-top: 1px;
+  }
+
+  .auth-page-clean .switch-button {
+    margin-top: 16px;
+  }
+
+  .auth-orbit,
+  .auth-mood-strip,
+  .auth-badge,
+  .auth-input-emoji,
+  .google-sparkle {
+    display: none !important;
+  }
+
+  .loading-page-clean::before,
+  .loading-page-clean::after {
+    opacity: 0.22;
+    filter: blur(24px);
+  }
+
+  .loading-card-clean {
+    width: min(100%, 260px);
+    padding: 28px 22px 25px;
+  }
+
+  .loading-card-clean .loading-word {
+    margin: 0;
+    font-size: 1.58rem;
+  }
+
+  .loading-card-clean .loading-caption {
+    margin: 8px 0 15px;
+  }
+
+  .loading-scene,
+  .loading-dot {
+    display: none !important;
+  }
+
+  /* Polished long-press feedback */
+  .list-row.long-pressing {
+    transform: scale(0.994) !important;
+    border-radius: 0;
+    background: var(--lavender-soft) !important;
+    box-shadow:
+      inset 0 0 0 1px rgba(203, 190, 234, 0.48),
+      0 4px 12px rgba(85, 70, 105, 0.035) !important;
+  }
+
+  .list-row.long-pressing .list-accent {
+    width: 6px;
+    transform: scaleY(0.9);
+  }
+
+  .item-row.long-pressing {
+    transform: scale(0.996);
+    border-radius: 0;
+    background: var(--lavender-soft);
+    box-shadow:
+      inset 0 0 0 1px rgba(203, 190, 234, 0.34);
+  }
+
+  .item-row.long-pressing .check-button {
+    border-color: #C7B9E5 !important;
+    background: #FFFFFF !important;
+  }
+
+  .item-row.long-pressing .item-text {
+    background: transparent !important;
+  }
+
+
+  /* Balanced auth design: playful enough to feel like Lyst, without clutter */
+  .auth-page-balanced {
+    position: relative;
+    overflow: hidden;
+    background: #FFFFFF;
+  }
+
+  .auth-page-balanced::before,
+  .auth-page-balanced::after {
+    display: none;
+  }
+
+  .auth-decoration {
+    position: fixed;
+    z-index: 0;
+    width: 240px;
+    height: 240px;
+    border-radius: 50%;
+    pointer-events: none;
+    filter: blur(18px);
+    opacity: 0.5;
+  }
+
+  .auth-decoration-one {
+    top: -132px;
+    left: -128px;
+    background: rgba(221, 211, 246, 0.62);
+  }
+
+  .auth-decoration-two {
+    right: -138px;
+    bottom: -142px;
+    background: rgba(207, 234, 223, 0.62);
+  }
+
+  .auth-panel-balanced {
+    position: relative;
+    width: min(100%, 356px);
+    padding: 24px 20px 20px;
+    overflow: hidden;
+    border: 1px solid #E7E1EB;
+    border-radius: 24px;
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow:
+      0 18px 52px rgba(78, 65, 92, 0.105),
+      0 2px 9px rgba(78, 65, 92, 0.035);
+    backdrop-filter: blur(14px);
+  }
+
+  .auth-panel-balanced::before {
+    display: none;
+  }
+
+  .auth-top-accent {
+    position: absolute;
+    top: 0;
+    right: 22px;
+    left: 22px;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    height: 3px;
+    overflow: hidden;
+    border-radius: 0 0 999px 999px;
+  }
+
+  .auth-top-accent span:nth-child(1) {
+    background: var(--lavender);
+  }
+
+  .auth-top-accent span:nth-child(2) {
+    background: var(--mint);
+  }
+
+  .auth-top-accent span:nth-child(3) {
+    background: var(--peach);
+  }
+
+  .auth-top-accent span:nth-child(4) {
+    background: var(--sky);
+  }
+
+  .auth-top-accent span:nth-child(5) {
+    background: var(--rose);
+  }
+
+  .auth-brand-balanced {
+    display: flex;
+    gap: 11px;
+    align-items: center;
+    margin-bottom: 23px;
+  }
+
+  .auth-monogram-balanced {
+    display: grid;
+    width: 44px;
+    height: 44px;
+    flex: 0 0 auto;
+    place-items: center;
+    border: 1px solid #D9CEE9;
+    border-radius: 15px;
+    color: #4A4260;
+    background: var(--lavender-soft);
+    box-shadow: 0 7px 18px rgba(96, 80, 119, 0.07);
+    font-size: 1.16rem;
+    font-weight: 830;
+    letter-spacing: -0.05em;
+  }
+
+  .auth-heading-balanced {
+    margin-bottom: 12px;
+  }
+
+  .auth-heading-balanced h1 {
+    margin-bottom: 6px;
+    font-size: 1.62rem;
+  }
+
+  .auth-heading-balanced p {
+    max-width: 300px;
+    font-size: 0.8rem;
+  }
+
+  .auth-soft-dots {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+
+  .auth-soft-dots span {
+    width: 28px;
+    height: 8px;
+    border-radius: 999px;
+  }
+
+  .auth-soft-dots span:nth-child(1) {
+    background: var(--rose-soft);
+    border: 1px solid #F1D8E1;
+  }
+
+  .auth-soft-dots span:nth-child(2) {
+    background: var(--sky-soft);
+    border: 1px solid #D9E9F7;
+  }
+
+  .auth-soft-dots span:nth-child(3) {
+    background: var(--lavender-soft);
+    border: 1px solid #E3D9F2;
+  }
+
+  .auth-soft-dots span:nth-child(4) {
+    background: var(--butter-soft);
+    border: 1px solid #F0E4AF;
+  }
+
+  .google-button-balanced {
+    min-height: 46px;
+    border: 1px solid #D4E4DB;
+    background: var(--mint-soft);
+    box-shadow: 0 5px 14px rgba(70, 112, 91, 0.055);
+  }
+
+  .google-button-balanced:active {
+    background: #E8F5EE;
+  }
+
+  .auth-form-balanced {
+    gap: 10px;
+  }
+
+  .auth-field-balanced {
+    display: grid;
+    gap: 6px;
+  }
+
+  .auth-field-balanced > span {
+    margin-left: 2px;
+    color: var(--muted);
+    font-size: 0.68rem;
+    font-weight: 660;
+  }
+
+  .auth-form-balanced input {
+    padding-left: 13px;
+    background: #FFFFFF;
+  }
+
+  .auth-form-balanced input:focus {
+    border-color: #CDBEED;
+    background: var(--lavender-soft);
+    box-shadow: 0 0 0 4px rgba(221, 211, 246, 0.34);
+  }
+
+  .auth-primary-balanced {
+    margin-top: 2px;
+    background: var(--peach);
+    box-shadow: 0 7px 18px rgba(142, 93, 69, 0.09);
+  }
+
+  .auth-page-balanced .switch-button {
+    margin-top: 15px;
+  }
+
+  .auth-page-balanced .forgot-button {
+    padding-top: 0;
+  }
+
+  /* Make sure the older over-decorated auth pieces stay gone */
+  .auth-orbit,
+  .auth-mood-strip,
+  .auth-badge,
+  .auth-input-emoji,
+  .google-sparkle {
+    display: none !important;
+  }
+
+
+  /* Refined mobile auth proportions */
+  .auth-page-balanced {
+    padding:
+      max(12px, env(safe-area-inset-top))
+      14px
+      max(12px, env(safe-area-inset-bottom));
+  }
+
+  .auth-panel-balanced {
+    width: min(100%, 350px);
+    padding: 20px 19px 17px;
+    border-radius: 22px;
+    box-shadow:
+      0 14px 38px rgba(78, 65, 92, 0.085),
+      0 2px 7px rgba(78, 65, 92, 0.025);
+  }
+
+  .auth-top-accent {
+    right: 18px;
+    left: 18px;
+  }
+
+  .auth-brand-balanced {
+    margin-bottom: 18px;
+  }
+
+  .auth-monogram-balanced {
+    width: 40px;
+    height: 40px;
+    border-radius: 13px;
+    font-size: 1.04rem;
+  }
+
+  .auth-name {
+    font-size: 1.32rem;
+  }
+
+  .auth-kicker {
+    margin-top: 4px;
+    font-size: 0.62rem;
+  }
+
+  .auth-heading-balanced {
+    margin-bottom: 14px;
+  }
+
+  .auth-heading-balanced h1 {
+    margin-bottom: 5px;
+    font-size: 1.43rem;
+    line-height: 1.08;
+  }
+
+  .auth-heading-balanced p {
+    margin: 0;
+    font-size: 0.75rem;
+    line-height: 1.42;
+  }
+
+  .auth-soft-dots {
+    display: none !important;
+  }
+
+  .google-button-balanced {
+    min-height: 43px;
+    font-size: 0.77rem;
+  }
+
+  .google-mark {
+    width: 20px;
+    height: 20px;
+    font-size: 0.64rem;
+  }
+
+  .divider {
+    margin: 13px 0;
+  }
+
+  .auth-form-balanced {
+    gap: 9px;
+  }
+
+  .auth-field-balanced {
+    gap: 5px;
+  }
+
+  .auth-field-balanced > span {
+    margin-left: 1px;
+    font-size: 0.65rem;
+  }
+
+  .auth-field-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .auth-field-label-row > span {
+    color: var(--muted);
+    font-size: 0.65rem;
+    font-weight: 660;
+  }
+
+  .forgot-inline {
+    justify-self: auto;
+    margin: 0;
+    padding: 0;
+    font-size: 0.63rem;
+  }
+
+  .auth-form-balanced input {
+    min-height: 43px;
+    padding: 0 12px;
+    font-size: 0.83rem;
+  }
+
+  .auth-primary-balanced {
+    min-height: 46px;
+    margin-top: 3px;
+    font-size: 0.82rem;
+  }
+
+  .auth-page-balanced .switch-button {
+    margin-top: 12px;
+    padding: 3px 0;
+    font-size: 0.67rem;
+  }
+
+  @media (max-height: 760px) {
+    .auth-panel-balanced {
+      padding-top: 17px;
+      padding-bottom: 15px;
+    }
+
+    .auth-brand-balanced {
+      margin-bottom: 15px;
+    }
+
+    .auth-heading-balanced {
+      margin-bottom: 12px;
+    }
+
+    .divider {
+      margin: 11px 0;
+    }
+
+    .auth-page-balanced .switch-button {
+      margin-top: 10px;
+    }
+  }
+
+
+  /* Shared pastel circular loader for app startup and auth transition */
+  .pastel-loader-page {
+    display: grid;
+    min-height: 100vh;
+    min-height: 100dvh;
+    place-items: center;
+    padding:
+      max(18px, env(safe-area-inset-top))
+      18px
+      max(18px, env(safe-area-inset-bottom));
+    overflow: hidden;
+    background: #FFFFFF;
+  }
+
+  .pastel-loader-wrap {
+    display: grid;
+    place-items: center;
+    gap: 15px;
+  }
+
+  .pastel-loader-ring {
+    position: relative;
+    display: grid;
+    width: 76px;
+    height: 76px;
+    place-items: center;
+  }
+
+  .pastel-loader-ring::before {
+    position: absolute;
+    inset: 7px;
+    border: 1px solid #ECE6F1;
+    border-radius: 50%;
+    content: "";
+    background: #FFFFFF;
+    box-shadow: 0 10px 28px rgba(78, 65, 92, 0.07);
+  }
+
+  .pastel-loader-orbit {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background:
+      conic-gradient(
+        from 0deg,
+        var(--lavender) 0deg 70deg,
+        transparent 70deg 92deg,
+        var(--mint) 92deg 162deg,
+        transparent 162deg 184deg,
+        var(--peach) 184deg 254deg,
+        transparent 254deg 276deg,
+        var(--sky) 276deg 346deg,
+        transparent 346deg 360deg
+      );
+    -webkit-mask:
+      radial-gradient(
+        farthest-side,
+        transparent calc(100% - 7px),
+        #000 calc(100% - 6px)
+      );
+    mask:
+      radial-gradient(
+        farthest-side,
+        transparent calc(100% - 7px),
+        #000 calc(100% - 6px)
+      );
+  }
+
+  .pastel-loader-center {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    width: 43px;
+    height: 43px;
+    place-items: center;
+    border: 1px solid #DDD3EE;
+    border-radius: 50%;
+    color: #4A4260;
+    background: var(--lavender-soft);
+    font-size: 1.05rem;
+    font-weight: 820;
+    letter-spacing: -0.05em;
+  }
+
+  .pastel-loader-label {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 650;
+  }
+
+
+  /* Text-only login branding */
+  .auth-brand-text-only {
+    gap: 0;
+  }
+
+  .auth-brand-text-only .auth-name {
+    font-size: 1.44rem;
+  }
+
+  .auth-monogram-balanced {
+    display: none !important;
+  }
+
+  /* Pure pastel loader ring, no center logo */
+  .pastel-loader-ring {
+    width: 66px;
+    height: 66px;
+  }
+
+  .pastel-loader-ring::before {
+    display: none;
+  }
+
+  .pastel-loader-center {
+    display: none !important;
+  }
+
+  .pastel-loader-orbit {
+    inset: 0;
+    -webkit-mask:
+      radial-gradient(
+        farthest-side,
+        transparent calc(100% - 7px),
+        #000 calc(100% - 6px)
+      );
+    mask:
+      radial-gradient(
+        farthest-side,
+        transparent calc(100% - 7px),
+        #000 calc(100% - 6px)
+      );
+  }
+
+
+  .list-row,
+  .item-row,
+  .item-text,
+  .item-main-text {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .list-row::selection,
+  .item-row::selection,
+  .item-text::selection,
+  .item-main-text::selection {
+    background: transparent;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
     *::after {
-      animation-duration: 0.01ms !important;
-      transition-duration: 0.01ms !important;
+      animation-duration: 0.2ms !important;
+      transition-duration: 0.2ms !important;
     }
   }
 `;
