@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "lyst-ai",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-10",
+  "workers_dev": true,
+  "vars": {
+    "ALLOWED_ORIGINS": "https://lyst-e2185.web.app,https://lyst-e2185.firebaseapp.com,http://localhost:5173"
+  },
+  "secrets": {
+    "required": [
+      "GEMINI_API_KEY"
+    ]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "LYST_BUDGET",
+        "class_name": "LystBudget"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "LystBudget"
+      ]
+    }
+  ]
+}

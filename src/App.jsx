@@ -3,7 +3,6 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import * as chrono from "chrono-node";
 
 import { initializeApp } from "firebase/app";
-
 import {
   GoogleAuthProvider,
   browserLocalPersistence,
@@ -26,6 +25,7 @@ import {
   getFirestore,
   getDocs,
   initializeFirestore,
+  increment,
   onSnapshot,
   orderBy,
   persistentLocalCache,
@@ -73,6 +73,120 @@ if (firebaseReady) {
   }
 }
 
+
+/* -------------------------------------------------------------------------- */
+/* Lyst V2 AI                                                                 */
+/* -------------------------------------------------------------------------- */
+
+const LYST_AI_URL = import.meta.env.VITE_LYST_AI_URL || "";
+
+async function callLystAi(payload) {
+  if (!LYST_AI_URL) {
+    throw new Error("Lyst AI URL is not configured.");
+  }
+
+  if (!auth?.currentUser) {
+    const error = new Error("Sign in before using AI.");
+    error.code = "unauthenticated";
+    throw error;
+  }
+
+  const idToken = await auth.currentUser.getIdToken();
+
+  const response = await fetch(LYST_AI_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${idToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  let data = {};
+
+  try {
+    data = await response.json();
+  } catch {
+    // A non-JSON gateway error will fall through to the generic message.
+  }
+
+  if (!response.ok) {
+    const error = new Error(
+      data?.error || "AI could not complete the request.",
+    );
+    error.code = data?.code || `http-${response.status}`;
+    throw error;
+  }
+
+  return data;
+}
+
+function getAiErrorMessage(error) {
+  const code = String(error?.code || "");
+
+  if (
+    code.includes("resource-exhausted") ||
+    code.includes("429")
+  ) {
+    return "AI limit reached for now. Try again after the limit resets.";
+  }
+
+  if (
+    code.includes("unauthenticated") ||
+    code.includes("401")
+  ) {
+    return "Sign in again before using AI.";
+  }
+
+  if (
+    code.includes("failed-precondition") ||
+    code.includes("503")
+  ) {
+    return "AI is not ready yet. Check the Worker setup.";
+  }
+
+  if (
+    code.includes("invalid-argument") ||
+    code.includes("400")
+  ) {
+    return error?.message || "That AI request could not be processed.";
+  }
+
+  if (!navigator.onLine) {
+    return "AI needs an internet connection.";
+  }
+
+  return error?.message || "AI could not finish that request. Try again.";
+}
+
+async function adjustListSummary(
+  userId,
+  listId,
+  itemDelta = 0,
+  completedDelta = 0,
+) {
+  if (!db || !userId || !listId) return;
+
+  const changes = {
+    updatedAt: serverTimestamp(),
+  };
+
+  if (itemDelta) {
+    changes.itemCount = increment(itemDelta);
+  }
+
+  if (completedDelta) {
+    changes.completedCount = increment(completedDelta);
+  }
+
+  if (Object.keys(changes).length <= 1) return;
+
+  await updateDoc(
+    doc(db, "users", userId, "lists", listId),
+    changes,
+  );
+}
+
 /* -------------------------------------------------------------------------- */
 /* Offline access                                                             */
 /* -------------------------------------------------------------------------- */
@@ -108,8 +222,10 @@ async function sendServiceWorkerMessage(message) {
   if (!("serviceWorker" in navigator)) return;
 
   try {
-    const registration = await navigator.serviceWorker.ready;
-    registration.active?.postMessage(message);
+    const registration =
+      await navigator.serviceWorker.getRegistration();
+
+    registration?.active?.postMessage(message);
   } catch (error) {
     console.warn("Could not contact service worker:", error);
   }
@@ -922,7 +1038,66 @@ export default function App() {
     );
   }, [user, offlineExpired]);
 
-  async function createList(title) {
+
+  useEffect(() => {
+    if (!user || !db || !isOnline || listsLoading) return;
+
+    const missingCounts = lists.filter(
+      (list) => !Number.isFinite(Number(list.itemCount)),
+    );
+
+    if (missingCounts.length === 0) return;
+
+    let cancelled = false;
+
+    async function backfillListCounts() {
+      for (const list of missingCounts.slice(0, 100)) {
+        if (cancelled) return;
+
+        try {
+          const snapshot = await getDocs(
+            collection(
+              db,
+              "users",
+              user.uid,
+              "lists",
+              list.id,
+              "items",
+            ),
+          );
+
+          let completedCount = 0;
+
+          snapshot.forEach((itemDocument) => {
+            if (itemDocument.data()?.completed) {
+              completedCount += 1;
+            }
+          });
+
+          await updateDoc(
+            doc(db, "users", user.uid, "lists", list.id),
+            {
+              itemCount: snapshot.size,
+              completedCount,
+            },
+          );
+        } catch (error) {
+          console.warn(
+            `Could not backfill counts for list ${list.id}:`,
+            error,
+          );
+        }
+      }
+    }
+
+    backfillListCounts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, isOnline, lists, listsLoading]);
+
+  async function createList(title, initialItems = []) {
     const cleanTitle = title.trim();
 
     if (!cleanTitle || !user || !db) return;
@@ -933,10 +1108,59 @@ export default function App() {
         {
           title: cleanTitle,
           archived: false,
+          itemCount: Array.isArray(initialItems)
+            ? Math.min(
+                30,
+                initialItems.filter((item) =>
+                  String(item?.text || "").trim(),
+                ).length,
+              )
+            : 0,
+          completedCount: 0,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         },
       );
+
+      if (Array.isArray(initialItems) && initialItems.length > 0) {
+        const batch = writeBatch(db);
+        const itemsCollection = collection(
+          db,
+          "users",
+          user.uid,
+          "lists",
+          reference.id,
+          "items",
+        );
+
+        initialItems.slice(0, 30).forEach((item) => {
+          const cleanText = String(item?.text || "").trim();
+
+          if (!cleanText) return;
+
+          const itemReference = doc(itemsCollection);
+
+          batch.set(itemReference, {
+            text: cleanText.slice(0, 200),
+            quantity:
+              item?.quantity === null ||
+              item?.quantity === undefined ||
+              item?.quantity === ""
+                ? null
+                : Number(item.quantity),
+            quantityUnit: String(item?.quantityUnit || "").slice(0, 20),
+            dueAt: null,
+            rawInput: cleanText,
+            timesAdded: 1,
+            completed: false,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+            completedAt: null,
+          });
+        });
+
+        await batch.commit();
+      }
 
       setNewListOpen(false);
 
@@ -1080,6 +1304,10 @@ export default function App() {
         await setDoc(listReference, {
           title: list.title,
           archived: Boolean(list.archived),
+          itemCount: deletedItems.length,
+          completedCount: deletedItems.filter(
+            (item) => Boolean(item.data?.completed),
+          ).length,
           createdAt: list.createdAt || serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
@@ -1256,6 +1484,7 @@ export default function App() {
             <NewListSheet
               onClose={() => setNewListOpen(false)}
               onCreate={createList}
+              showToast={showToast}
             />
           )}
 
@@ -1818,7 +2047,9 @@ function HomeScreen({
                 <span className="list-row-copy">
                   <span className="list-title-text">{list.title}</span>
                   <small className="list-row-meta">
-                    Open list
+                    {Number(list.itemCount) === 1
+                      ? "1 item"
+                      : `${Math.max(0, Number(list.itemCount) || 0)} items`}
                   </small>
                 </span>
 
@@ -1902,6 +2133,7 @@ function ListScreen({
   const [editingItem, setEditingItem] = useState(null);
   const [naturalPreview, setNaturalPreview] = useState(null);
   const [duplicatePrompt, setDuplicatePrompt] = useState(null);
+  const [aiOpen, setAiOpen] = useState(false);
   const [itemsListenerVersion, setItemsListenerVersion] = useState(0);
   const lastItemsRefreshRef = useRef(0);
 
@@ -2140,6 +2372,7 @@ function ListScreen({
       },
     );
 
+    await adjustListSummary(user.uid, list.id, 1, 0);
   }
 
   async function mergeDuplicate(existingItem, parsedItem) {
@@ -2258,6 +2491,12 @@ function ListScreen({
         },
       );
 
+      await adjustListSummary(
+        user.uid,
+        list.id,
+        0,
+        nextCompleted ? 1 : -1,
+      );
     } catch (error) {
       console.error(error);
       showToast("Could not update the item.");
@@ -2328,9 +2567,21 @@ function ListScreen({
 
     try {
       await deleteDoc(itemReference);
+      await adjustListSummary(
+        user.uid,
+        list.id,
+        -1,
+        item.completed ? -1 : 0,
+      );
 
       showUndo("Item deleted.", async () => {
         await setDoc(itemReference, backup);
+        await adjustListSummary(
+          user.uid,
+          list.id,
+          1,
+          item.completed ? 1 : 0,
+        );
       });
     } catch (error) {
       console.error(error);
@@ -2367,6 +2618,12 @@ function ListScreen({
       });
 
       await batch.commit();
+      await adjustListSummary(
+        user.uid,
+        list.id,
+        -completedItems.length,
+        -completedItems.length,
+      );
 
       setMenuOpen(false);
 
@@ -2389,10 +2646,125 @@ function ListScreen({
         });
 
         await restoreBatch.commit();
+        await adjustListSummary(
+          user.uid,
+          list.id,
+          completedItems.length,
+          completedItems.length,
+        );
       });
     } catch (error) {
       console.error(error);
       showToast("Could not clear completed items.");
+    }
+  }
+
+
+  async function addAiSuggestions(aiItems) {
+    if (!Array.isArray(aiItems) || aiItems.length === 0) return;
+
+    const existingKeys = new Set(
+      items.map((item) => normalizeItemKey(item.text)),
+    );
+
+    const uniqueItems = aiItems
+      .filter((item) => item?.text)
+      .filter((item) => !existingKeys.has(normalizeItemKey(item.text)))
+      .slice(0, 30);
+
+    if (uniqueItems.length === 0) {
+      showToast("Those items are already in this list.");
+      return;
+    }
+
+    try {
+      const batch = writeBatch(db);
+      const itemsCollection = collection(
+        db,
+        "users",
+        user.uid,
+        "lists",
+        list.id,
+        "items",
+      );
+
+      uniqueItems.forEach((item) => {
+        const itemReference = doc(itemsCollection);
+        const cleanText = String(item.text).trim().slice(0, 200);
+
+        batch.set(itemReference, {
+          text: cleanText,
+          quantity:
+            item.quantity === null ||
+            item.quantity === undefined ||
+            item.quantity === ""
+              ? null
+              : Number(item.quantity),
+          quantityUnit: String(item.quantityUnit || "").slice(0, 20),
+          dueAt: null,
+          rawInput: cleanText,
+          timesAdded: 1,
+          completed: false,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          completedAt: null,
+        });
+      });
+
+      await batch.commit();
+      await adjustListSummary(
+        user.uid,
+        list.id,
+        uniqueItems.length,
+        0,
+      );
+      setAiOpen(false);
+      showToast(
+        `${uniqueItems.length} ${
+          uniqueItems.length === 1 ? "item" : "items"
+        } added.`,
+      );
+    } catch (error) {
+      console.error(error);
+      showToast("Could not add the AI suggestions.");
+    }
+  }
+
+  async function applyAiEdits(edits) {
+    if (!Array.isArray(edits) || edits.length === 0) {
+      showToast("Nothing needed cleaning up.");
+      return;
+    }
+
+    try {
+      const batch = writeBatch(db);
+
+      edits.slice(0, 30).forEach((edit) => {
+        if (!edit?.itemId || !edit?.text) return;
+
+        batch.update(
+          doc(
+            db,
+            "users",
+            user.uid,
+            "lists",
+            list.id,
+            "items",
+            edit.itemId,
+          ),
+          {
+            text: String(edit.text).trim().slice(0, 200),
+            updatedAt: serverTimestamp(),
+          },
+        );
+      });
+
+      await batch.commit();
+      setAiOpen(false);
+      showToast("List cleaned up.");
+    } catch (error) {
+      console.error(error);
+      showToast("Could not apply the AI cleanup.");
     }
   }
 
@@ -2587,11 +2959,25 @@ function ListScreen({
       </header>
 
       <section className="list-heading">
-        <h1>{list.title}</h1>
+        <div className="list-heading-row">
+          <div>
+            <h1>{list.title}</h1>
 
-        <p>
-          {remainingItems} {remainingItems === 1 ? "item" : "items"} left
-        </p>
+            <p>
+              {remainingItems} {remainingItems === 1 ? "item" : "items"} left
+            </p>
+          </div>
+
+          <motion.button
+            className="ai-assist-button"
+            type="button"
+            disabled={!navigator.onLine}
+            whileTap={{ scale: 0.94 }}
+            onClick={() => setAiOpen(true)}
+          >
+            AI
+          </motion.button>
+        </div>
       </section>
 
       <section className="items">
@@ -2811,8 +3197,197 @@ function ListScreen({
             }
           />
         )}
+
+        {aiOpen && (
+          <AiAssistSheet
+            list={list}
+            items={items}
+            onClose={() => setAiOpen(false)}
+            onAddItems={addAiSuggestions}
+            onApplyEdits={applyAiEdits}
+            showToast={showToast}
+          />
+        )}
       </AnimatePresence>
     </motion.main>
+  );
+}
+
+
+function AiAssistSheet({
+  list,
+  items,
+  onClose,
+  onAddItems,
+  onApplyEdits,
+  showToast,
+}) {
+  const [workingAction, setWorkingAction] = useState("");
+  const [result, setResult] = useState(null);
+
+  async function run(action) {
+    if (workingAction) return;
+
+    try {
+      setWorkingAction(action);
+      setResult(null);
+
+      const response = await callLystAi({
+        action,
+        listTitle: list.title,
+        items: items.slice(0, 80).map((item) => ({
+          id: item.id,
+          text: item.text,
+          quantity: item.quantity ?? null,
+          quantityUnit: item.quantityUnit || "",
+          completed: Boolean(item.completed),
+        })),
+      });
+
+      setResult({
+        action,
+        ...response,
+      });
+    } catch (error) {
+      console.error(error);
+      showToast(getAiErrorMessage(error));
+    } finally {
+      setWorkingAction("");
+    }
+  }
+
+  return (
+    <Sheet onClose={onClose}>
+      <div className="sheet-content">
+        <div className="sheet-handle" />
+
+        <header className="sheet-header">
+          <h2>AI for {list.title}</h2>
+
+          <button
+            className="danger-outline-action"
+            type="button"
+            onClick={onClose}
+          >
+            Cancel
+          </button>
+        </header>
+
+        {!result && (
+          <div className="ai-action-grid">
+            <button
+              type="button"
+              disabled={Boolean(workingAction)}
+              onClick={() => run("suggest")}
+            >
+              <strong>Suggest missing items</strong>
+              <small>Useful additions based only on this list.</small>
+            </button>
+
+            <button
+              type="button"
+              disabled={Boolean(workingAction)}
+              onClick={() => run("complete")}
+            >
+              <strong>Complete this list</strong>
+              <small>Fill obvious gaps without repeating items.</small>
+            </button>
+
+            <button
+              type="button"
+              disabled={Boolean(workingAction)}
+              onClick={() => run("organize")}
+            >
+              <strong>Clean up names</strong>
+              <small>Fix inconsistent or unnecessarily messy item names.</small>
+            </button>
+          </div>
+        )}
+
+        {workingAction && (
+          <div className="ai-working">
+            <div className="mini-pastel-spinner" />
+            <span>Thinking lightly...</span>
+          </div>
+        )}
+
+        {result && (
+          <div className="ai-result">
+            {result.action === "organize" ? (
+              <>
+                <div className="ai-result-heading">
+                  <strong>Cleanup preview</strong>
+                  <small>
+                    {result.edits?.length || 0} suggested changes
+                  </small>
+                </div>
+
+                <div className="ai-preview-items">
+                  {(result.edits || []).map((edit) => (
+                    <span key={edit.itemId}>{edit.text}</span>
+                  ))}
+                </div>
+
+                <motion.button
+                  className="primary-button"
+                  type="button"
+                  disabled={!result.edits?.length}
+                  whileTap={{ scale: 0.975 }}
+                  onClick={() => onApplyEdits(result.edits || [])}
+                >
+                  Apply cleanup
+                </motion.button>
+              </>
+            ) : (
+              <>
+                <div className="ai-result-heading">
+                  <strong>Suggestions</strong>
+                  <small>
+                    {result.items?.length || 0} items
+                  </small>
+                </div>
+
+                <div className="ai-preview-items">
+                  {(result.items || []).map((item, index) => (
+                    <span key={`${item.text}-${index}`}>
+                      {item.text}
+                      {item.quantity
+                        ? ` · ${formatQuantity(
+                            item.quantity,
+                            item.quantityUnit,
+                          )}`
+                        : ""}
+                    </span>
+                  ))}
+                </div>
+
+                <motion.button
+                  className="primary-button"
+                  type="button"
+                  disabled={!result.items?.length}
+                  whileTap={{ scale: 0.975 }}
+                  onClick={() => onAddItems(result.items || [])}
+                >
+                  Add suggestions
+                </motion.button>
+              </>
+            )}
+
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => setResult(null)}
+            >
+              Try another action
+            </button>
+          </div>
+        )}
+
+        <p className="ai-budget-note">
+          AI is Worker-limited during V2 testing to protect your budget.
+        </p>
+      </div>
+    </Sheet>
   );
 }
 
@@ -3252,8 +3827,39 @@ function NaturalInputSheet({
   );
 }
 
-function NewListSheet({ onClose, onCreate }) {
+function NewListSheet({ onClose, onCreate, showToast }) {
   const [title, setTitle] = useState("");
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiWorking, setAiWorking] = useState(false);
+  const [generated, setGenerated] = useState(null);
+
+  async function generateList() {
+    const prompt = aiPrompt.trim();
+
+    if (!prompt || aiWorking) return;
+
+    if (!navigator.onLine) {
+      showToast("AI needs an internet connection.");
+      return;
+    }
+
+    try {
+      setAiWorking(true);
+
+      const result = await callLystAi({
+        action: "generate",
+        prompt,
+      });
+
+      setGenerated(result);
+      setTitle(result.title || title);
+    } catch (error) {
+      console.error(error);
+      showToast(getAiErrorMessage(error));
+    } finally {
+      setAiWorking(false);
+    }
+  }
 
   return (
     <Sheet onClose={onClose}>
@@ -3261,7 +3867,7 @@ function NewListSheet({ onClose, onCreate }) {
         className="sheet-content"
         onSubmit={(event) => {
           event.preventDefault();
-          onCreate(title);
+          onCreate(title, generated?.items || []);
         }}
       >
         <div className="sheet-handle" />
@@ -3280,11 +3886,70 @@ function NewListSheet({ onClose, onCreate }) {
           value={title}
           maxLength={40}
           placeholder="List name"
-          onChange={(event) => setTitle(event.target.value)}
+          onChange={(event) => {
+            setTitle(event.target.value);
+            if (generated) setGenerated(null);
+          }}
           onFocus={(event) => {
-            window.setTimeout(() => event.currentTarget?.scrollIntoView({ block: "center", behavior: "smooth" }), 120);
+            window.setTimeout(
+              () =>
+                event.currentTarget?.scrollIntoView({
+                  block: "center",
+                  behavior: "smooth",
+                }),
+              120,
+            );
           }}
         />
+
+        <div className="ai-create-box">
+          <div className="ai-section-title">
+            <strong>Generate with AI</strong>
+            <small>Optional</small>
+          </div>
+
+          <textarea
+            value={aiPrompt}
+            maxLength={350}
+            rows={3}
+            placeholder="e.g. Packing list for 5 winter days in Murree"
+            onChange={(event) => {
+              setAiPrompt(event.target.value);
+              setGenerated(null);
+            }}
+          />
+
+          <motion.button
+            className="secondary-button ai-generate-button"
+            type="button"
+            disabled={!aiPrompt.trim() || aiWorking}
+            whileTap={{ scale: 0.975 }}
+            onClick={generateList}
+          >
+            {aiWorking ? "Generating..." : "Generate preview"}
+          </motion.button>
+
+          {generated?.items?.length > 0 && (
+            <div className="ai-preview-card">
+              <strong>{generated.title || title || "Generated list"}</strong>
+              <small>{generated.items.length} suggested items</small>
+
+              <div className="ai-preview-items">
+                {generated.items.slice(0, 30).map((item, index) => (
+                  <span key={`${item.text}-${index}`}>
+                    {item.text}
+                    {item.quantity
+                      ? ` · ${formatQuantity(
+                          item.quantity,
+                          item.quantityUnit,
+                        )}`
+                      : ""}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
 
         <motion.button
           className="primary-button"
@@ -3292,7 +3957,9 @@ function NewListSheet({ onClose, onCreate }) {
           disabled={!title.trim()}
           whileTap={{ scale: 0.975 }}
         >
-          Create list
+          {generated?.items?.length
+            ? `Create with ${generated.items.length} items`
+            : "Create list"}
         </motion.button>
       </form>
     </Sheet>
@@ -6655,6 +7322,203 @@ const styles = `
   .item-text::selection,
   .item-main-text::selection {
     background: transparent;
+  }
+
+
+  /* Lyst V2 AI */
+  .list-heading-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+  }
+
+  .ai-assist-button {
+    min-width: 44px;
+    min-height: 34px;
+    padding: 0 12px;
+    border: 1px solid #D8CDEA;
+    border-radius: 10px;
+    color: #625674;
+    background: var(--lavender-soft);
+    font-size: 0.72rem;
+    font-weight: 760;
+  }
+
+  .ai-assist-button:disabled {
+    opacity: 0.45;
+  }
+
+  .ai-create-box {
+    display: grid;
+    gap: 10px;
+    padding: 13px;
+    border: 1px solid #E8E1EE;
+    border-radius: 14px;
+    background: #FCFAFD;
+  }
+
+  .ai-section-title,
+  .ai-result-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .ai-section-title strong,
+  .ai-result-heading strong {
+    font-size: 0.78rem;
+  }
+
+  .ai-section-title small,
+  .ai-result-heading small,
+  .ai-budget-note {
+    color: var(--muted);
+    font-size: 0.66rem;
+  }
+
+  .ai-create-box textarea {
+    width: 100%;
+    resize: vertical;
+    min-height: 78px;
+    padding: 11px 12px;
+    border: 1px solid #DDD5E5;
+    border-radius: 12px;
+    outline: none;
+    color: var(--text);
+    background: #FFFFFF;
+    font: inherit;
+    font-size: 0.82rem;
+  }
+
+  .ai-create-box textarea:focus {
+    border-color: #C9B9E2;
+    box-shadow: 0 0 0 3px rgba(218, 205, 239, 0.3);
+  }
+
+  .secondary-button {
+    min-height: 42px;
+    padding: 0 14px;
+    border: 1px solid #DDD5E5;
+    border-radius: 11px;
+    color: #655B6E;
+    background: #FFFFFF;
+    font-weight: 700;
+  }
+
+  .ai-generate-button {
+    background: var(--mint-soft);
+    border-color: #C8E1D5;
+  }
+
+  .ai-preview-card,
+  .ai-result {
+    display: grid;
+    gap: 11px;
+  }
+
+  .ai-preview-card {
+    padding: 12px;
+    border: 1px solid #E5DDED;
+    border-radius: 12px;
+    background: #FFFFFF;
+  }
+
+  .ai-preview-card > strong {
+    font-size: 0.8rem;
+  }
+
+  .ai-preview-card > small {
+    color: var(--muted);
+    font-size: 0.65rem;
+  }
+
+  .ai-preview-items {
+    display: grid;
+    gap: 6px;
+  }
+
+  .ai-preview-items > span {
+    display: block;
+    padding: 7px 9px;
+    border-left: 3px solid #D8CDEA;
+    color: #5B5263;
+    background: #FAF7FC;
+    font-size: 0.74rem;
+  }
+
+  .ai-action-grid {
+    display: grid;
+    gap: 9px;
+  }
+
+  .ai-action-grid > button {
+    display: grid;
+    gap: 4px;
+    width: 100%;
+    padding: 12px 13px;
+    border: 1px solid #E3DCE8;
+    border-radius: 12px;
+    text-align: left;
+    color: var(--text);
+    background: #FFFFFF;
+  }
+
+  .ai-action-grid > button:nth-child(1) {
+    background: var(--mint-soft);
+    border-color: #CBE3D7;
+  }
+
+  .ai-action-grid > button:nth-child(2) {
+    background: var(--sky-soft);
+    border-color: #CADDEB;
+  }
+
+  .ai-action-grid > button:nth-child(3) {
+    background: var(--lavender-soft);
+    border-color: #D8CDEA;
+  }
+
+  .ai-action-grid strong {
+    font-size: 0.78rem;
+  }
+
+  .ai-action-grid small {
+    color: var(--muted);
+    font-size: 0.66rem;
+    line-height: 1.4;
+  }
+
+  .ai-working {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    min-height: 90px;
+    color: var(--muted);
+    font-size: 0.72rem;
+  }
+
+  .mini-pastel-spinner {
+    width: 24px;
+    height: 24px;
+    border: 4px solid #EFEAF4;
+    border-top-color: #BCA9D9;
+    border-right-color: #BBDCCA;
+    border-radius: 50%;
+    animation: lyst-ai-spin 0.55s linear infinite;
+  }
+
+  @keyframes lyst-ai-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .ai-budget-note {
+    margin: 2px 0 0;
+    text-align: center;
   }
 
   @media (prefers-reduced-motion: reduce) {
