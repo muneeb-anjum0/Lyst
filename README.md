@@ -1,16 +1,27 @@
-# React + Vite
+# Lyst
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A minimal personal list app with offline support, natural language parsing, and AI-assisted list generation.
 
-Currently, two official plugins are available:
+Built with React, Firebase, Cloudflare Workers, and Gemini.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Features
 
-## React Compiler
+- Create and manage personal lists
+- Natural language item parsing
+- Offline-first support
+- Firebase Authentication
+- Firestore sync
+- AI-powered list generation
+- AI suggestions and cleanup
+- Per-user AI rate limiting
+- Mobile-first PWA experience
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Tech
 
-## Expanding the ESLint configuration
+React · Vite · Firebase · Firestore · Cloudflare Workers · Gemini API · Framer Motion · chrono-node
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Run locally
+
+```bash
+npm install
+npm run dev
