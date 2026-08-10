@@ -4,7 +4,7 @@ import {
   jwtVerify,
 } from "jose";
 
-const BUILD_ID = "lyst-worker-v7-2026-08-10";
+const BUILD_ID = "lyst-worker-v8-2026-08-10";
 const MODEL = "gemini-3.5-flash-lite";
 
 const FIREBASE_PROJECT_ID = "lyst-e2185";
@@ -20,9 +20,24 @@ const FIREBASE_CERTS_URL =
 /* -------------------------------------------------------------------------- */
 
 const MAX_INPUT_TOKENS_PER_REQUEST = 1200;
-const MAX_REQUESTS_PER_USER_PER_DAY = 5;
+
+/*
+  Higher while we test V2 locally.
+
+  Failed requests DO NOT consume this quota anymore.
+*/
+const MAX_REQUESTS_PER_USER_PER_DAY = 20;
+
 const MAX_TOKENS_PER_USER_PER_MONTH = 10_000;
 const MAX_TOKENS_GLOBAL_PER_MONTH = 250_000;
+
+/*
+  Versioned limiter namespace.
+
+  This gives V8 a clean daily counter instead of inheriting the polluted
+  counter created by failed V3-V7 testing requests.
+*/
+const LIMITER_VERSION = "v8";
 
 /* -------------------------------------------------------------------------- */
 /* AI configuration                                                           */
@@ -194,7 +209,7 @@ function handleOptions(
 }
 
 /* -------------------------------------------------------------------------- */
-/* Helpers                                                                    */
+/* General helpers                                                            */
 /* -------------------------------------------------------------------------- */
 
 function normalizeText(
@@ -734,7 +749,7 @@ const ORGANIZE_SCHEMA = {
 };
 
 /* -------------------------------------------------------------------------- */
-/* Prompt builder                                                             */
+/* Task builder                                                               */
 /* -------------------------------------------------------------------------- */
 
 function buildTask(
@@ -1074,10 +1089,6 @@ async function generate(
 
         responseFormat: {
           text: {
-            /*
-              Raw Gemini REST API enum.
-              Do NOT change this back to "application/json".
-            */
             mimeType:
               "APPLICATION_JSON",
 
@@ -1149,7 +1160,7 @@ function parseJsonResponse(
           fenced[1],
         );
       } catch {
-        // Continue to the diagnostic error below.
+        // Continue to diagnostic logging below.
       }
     }
 
@@ -1471,6 +1482,23 @@ function formatResult(
 /* Durable Object budget limiter                                              */
 /* -------------------------------------------------------------------------- */
 
+/*
+  Daily request accounting:
+
+  reserve:
+    reservedRequests += 1
+
+  success/commit:
+    reservedRequests -= 1
+    requests += 1
+
+  failure/release:
+    reservedRequests -= 1
+
+  Therefore failed Gemini calls no longer consume the daily successful-request
+  quota.
+*/
+
 export class LystBudget {
   constructor(ctx) {
     this.ctx =
@@ -1568,13 +1596,13 @@ export class LystBudget {
       dayKey();
 
     const globalKey =
-      `g:${month}`;
+      `g:${LIMITER_VERSION}:${month}`;
 
     const userMonthKey =
-      `u:${uid}:${month}`;
+      `u:${LIMITER_VERSION}:${uid}:${month}`;
 
     const userDayKey =
-      `d:${uid}:${day}`;
+      `d:${LIMITER_VERSION}:${uid}:${day}`;
 
     const global =
       this.ctx.storage.kv.get(
@@ -1607,9 +1635,14 @@ export class LystBudget {
         userMonth.reservedTokens,
       );
 
-    const dayRequests =
+    const successfulRequests =
       safeNumber(
         userDay.requests,
+      );
+
+    const reservedRequests =
+      safeNumber(
+        userDay.reservedRequests,
       );
 
     if (
@@ -1647,7 +1680,8 @@ export class LystBudget {
     }
 
     if (
-      dayRequests >=
+      successfulRequests +
+        reservedRequests >=
       MAX_REQUESTS_PER_USER_PER_DAY
     ) {
       return json(
@@ -1693,8 +1727,8 @@ export class LystBudget {
       {
         ...userDay,
 
-        requests:
-          dayRequests +
+        reservedRequests:
+          reservedRequests +
           1,
       },
     );
@@ -1747,11 +1781,17 @@ export class LystBudget {
     const month =
       monthKey();
 
+    const day =
+      dayKey();
+
     const globalKey =
-      `g:${month}`;
+      `g:${LIMITER_VERSION}:${month}`;
 
     const userMonthKey =
-      `u:${uid}:${month}`;
+      `u:${LIMITER_VERSION}:${uid}:${month}`;
+
+    const userDayKey =
+      `d:${LIMITER_VERSION}:${uid}:${day}`;
 
     const global =
       this.ctx.storage.kv.get(
@@ -1761,6 +1801,11 @@ export class LystBudget {
     const userMonth =
       this.ctx.storage.kv.get(
         userMonthKey,
+      ) || {};
+
+    const userDay =
+      this.ctx.storage.kv.get(
+        userDayKey,
       ) || {};
 
     this.ctx.storage.kv.put(
@@ -1843,6 +1888,28 @@ export class LystBudget {
       },
     );
 
+    this.ctx.storage.kv.put(
+      userDayKey,
+      {
+        ...userDay,
+
+        reservedRequests:
+          Math.max(
+            0,
+            safeNumber(
+              userDay.reservedRequests,
+            ) -
+              1,
+          ),
+
+        requests:
+          safeNumber(
+            userDay.requests,
+          ) +
+          1,
+      },
+    );
+
     return json({
       ok:
         true,
@@ -1876,11 +1943,17 @@ export class LystBudget {
     const month =
       monthKey();
 
+    const day =
+      dayKey();
+
     const globalKey =
-      `g:${month}`;
+      `g:${LIMITER_VERSION}:${month}`;
 
     const userMonthKey =
-      `u:${uid}:${month}`;
+      `u:${LIMITER_VERSION}:${uid}:${month}`;
+
+    const userDayKey =
+      `d:${LIMITER_VERSION}:${uid}:${day}`;
 
     const global =
       this.ctx.storage.kv.get(
@@ -1890,6 +1963,11 @@ export class LystBudget {
     const userMonth =
       this.ctx.storage.kv.get(
         userMonthKey,
+      ) || {};
+
+    const userDay =
+      this.ctx.storage.kv.get(
+        userDayKey,
       ) || {};
 
     this.ctx.storage.kv.put(
@@ -1924,12 +2002,32 @@ export class LystBudget {
       },
     );
 
+    this.ctx.storage.kv.put(
+      userDayKey,
+      {
+        ...userDay,
+
+        reservedRequests:
+          Math.max(
+            0,
+            safeNumber(
+              userDay.reservedRequests,
+            ) -
+              1,
+          ),
+      },
+    );
+
     return json({
       ok:
         true,
     });
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Budget helper                                                              */
+/* -------------------------------------------------------------------------- */
 
 async function budgetCall(
   env,

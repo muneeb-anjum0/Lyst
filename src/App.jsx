@@ -79,6 +79,7 @@ if (firebaseReady) {
 /* -------------------------------------------------------------------------- */
 
 const LYST_AI_URL = import.meta.env.VITE_LYST_AI_URL || "";
+const DAILY_AI_REQUEST_LIMIT = 20;
 
 async function callLystAi(payload) {
   if (!LYST_AI_URL) {
@@ -119,6 +120,15 @@ async function callLystAi(payload) {
   }
 
   return data;
+}
+
+function isAiLimitError(error) {
+  const code = String(error?.code || "");
+
+  return (
+    code.includes("resource-exhausted") ||
+    code.includes("429")
+  );
 }
 
 function getAiErrorMessage(error) {
@@ -2972,10 +2982,38 @@ function ListScreen({
             className="ai-assist-button"
             type="button"
             disabled={!navigator.onLine}
-            whileTap={{ scale: 0.94 }}
+            whileHover={reduceMotion ? {} : { y: -1, scale: 1.04 }}
+            whileTap={{ scale: 0.9 }}
             onClick={() => setAiOpen(true)}
+            aria-label="Open Lyst AI"
+            title="Lyst AI"
           >
-            AI
+            <svg
+              className="ai-gemini-mark"
+              viewBox="0 0 32 32"
+              aria-hidden="true"
+            >
+              <defs>
+                <linearGradient
+                  id="lyst-gemini-gradient"
+                  x1="4"
+                  y1="4"
+                  x2="28"
+                  y2="28"
+                  gradientUnits="userSpaceOnUse"
+                >
+                  <stop offset="0" stopColor="#A9C8F8" />
+                  <stop offset="0.34" stopColor="#C7B8F2" />
+                  <stop offset="0.67" stopColor="#F1BED7" />
+                  <stop offset="1" stopColor="#F6D7B7" />
+                </linearGradient>
+              </defs>
+
+              <path
+                d="M16 3.2C17.25 10.55 21.45 14.75 28.8 16C21.45 17.25 17.25 21.45 16 28.8C14.75 21.45 10.55 17.25 3.2 16C10.55 14.75 14.75 10.55 16 3.2Z"
+                fill="url(#lyst-gemini-gradient)"
+              />
+            </svg>
           </motion.button>
         </div>
       </section>
@@ -3224,6 +3262,7 @@ function AiAssistSheet({
 }) {
   const [workingAction, setWorkingAction] = useState("");
   const [result, setResult] = useState(null);
+  const [limitPopupOpen, setLimitPopupOpen] = useState(false);
 
   async function run(action) {
     if (workingAction) return;
@@ -3250,7 +3289,12 @@ function AiAssistSheet({
       });
     } catch (error) {
       console.error(error);
-      showToast(getAiErrorMessage(error));
+
+      if (isAiLimitError(error)) {
+        setLimitPopupOpen(true);
+      } else {
+        showToast(getAiErrorMessage(error));
+      }
     } finally {
       setWorkingAction("");
     }
@@ -3383,9 +3427,13 @@ function AiAssistSheet({
           </div>
         )}
 
-        <p className="ai-budget-note">
-          AI is Worker-limited during V2 testing to protect your budget.
-        </p>
+        <AnimatePresence>
+          {limitPopupOpen && (
+            <AiLimitPopup
+              onClose={() => setLimitPopupOpen(false)}
+            />
+          )}
+        </AnimatePresence>
       </div>
     </Sheet>
   );
@@ -3832,6 +3880,7 @@ function NewListSheet({ onClose, onCreate, showToast }) {
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiWorking, setAiWorking] = useState(false);
   const [generated, setGenerated] = useState(null);
+  const [limitPopupOpen, setLimitPopupOpen] = useState(false);
 
   async function generateList() {
     const prompt = aiPrompt.trim();
@@ -3855,7 +3904,12 @@ function NewListSheet({ onClose, onCreate, showToast }) {
       setTitle(result.title || title);
     } catch (error) {
       console.error(error);
-      showToast(getAiErrorMessage(error));
+
+      if (isAiLimitError(error)) {
+        setLimitPopupOpen(true);
+      } else {
+        showToast(getAiErrorMessage(error));
+      }
     } finally {
       setAiWorking(false);
     }
@@ -3961,6 +4015,14 @@ function NewListSheet({ onClose, onCreate, showToast }) {
             ? `Create with ${generated.items.length} items`
             : "Create list"}
         </motion.button>
+
+        <AnimatePresence>
+          {limitPopupOpen && (
+            <AiLimitPopup
+              onClose={() => setLimitPopupOpen(false)}
+            />
+          )}
+        </AnimatePresence>
       </form>
     </Sheet>
   );
@@ -4479,6 +4541,80 @@ function Sheet({ children, onClose }) {
   );
 }
 
+function AiLimitPopup({ onClose }) {
+  return (
+    <motion.div
+      className="ai-limit-backdrop"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <motion.div
+        className="ai-limit-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ai-limit-title"
+        initial={{ opacity: 0, y: 14, scale: 0.94 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 10, scale: 0.96 }}
+        transition={{
+          type: "spring",
+          stiffness: 520,
+          damping: 24,
+        }}
+      >
+        <div className="ai-limit-icon" aria-hidden="true">
+          <svg viewBox="0 0 32 32">
+            <defs>
+              <linearGradient
+                id="lyst-limit-gradient"
+                x1="4"
+                y1="4"
+                x2="28"
+                y2="28"
+                gradientUnits="userSpaceOnUse"
+              >
+                <stop offset="0" stopColor="#A9C8F8" />
+                <stop offset="0.34" stopColor="#C7B8F2" />
+                <stop offset="0.67" stopColor="#F1BED7" />
+                <stop offset="1" stopColor="#F6D7B7" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M16 3.2C17.25 10.55 21.45 14.75 28.8 16C21.45 17.25 17.25 21.45 16 28.8C14.75 21.45 10.55 17.25 3.2 16C10.55 14.75 14.75 10.55 16 3.2Z"
+              fill="url(#lyst-limit-gradient)"
+            />
+          </svg>
+        </div>
+
+        <span className="ai-limit-kicker">AI break</span>
+
+        <h2 id="ai-limit-title">You’ve used today’s AI assists</h2>
+
+        <p>
+          You get {DAILY_AI_REQUEST_LIMIT} AI requests each day.
+          Your limit will refresh tomorrow, and all your regular
+          lists still work normally.
+        </p>
+
+        <motion.button
+          className="ai-limit-button"
+          type="button"
+          whileTap={{ scale: 0.96 }}
+          onClick={onClose}
+        >
+          Got it
+        </motion.button>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 /* -------------------------------------------------------------------------- */
 /* Supporting UI                                                              */
 /* -------------------------------------------------------------------------- */
@@ -4663,6 +4799,8 @@ function GlobalStyles() {
 }
 
 const styles = `
+  @import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap");
+
   :root {
     --page: #FFFFFF;
     --surface: #FFFFFF;
@@ -4686,12 +4824,15 @@ const styles = `
     --keyboard-offset: 0px;
 
     font-family:
-      "Avenir Next",
-      Avenir,
+      "Manrope",
+      "Inter",
       "SF Pro Display",
       "SF Pro Text",
+      "Segoe UI Variable",
+      "Segoe UI",
       -apple-system,
       BlinkMacSystemFont,
+      system-ui,
       sans-serif;
 
     color: #3B3650;
@@ -4724,7 +4865,9 @@ const styles = `
 
   body,
   button,
-  input {
+  input,
+  textarea,
+  select {
     font-family: inherit;
   }
 
@@ -7334,19 +7477,34 @@ const styles = `
   }
 
   .ai-assist-button {
-    min-width: 44px;
-    min-height: 34px;
-    padding: 0 12px;
-    border: 1px solid #D8CDEA;
-    border-radius: 10px;
-    color: #625674;
-    background: var(--lavender-soft);
-    font-size: 0.72rem;
-    font-weight: 760;
+    display: grid;
+    width: 40px;
+    height: 40px;
+    flex: 0 0 auto;
+    place-items: center;
+    padding: 0;
+    border: 1px solid #E3DDEC;
+    border-radius: 13px;
+    background: #FFFFFF;
+    box-shadow:
+      0 6px 16px rgba(74, 59, 91, 0.055),
+      inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  }
+
+  .ai-assist-button:hover {
+    border-color: #D7CDE4;
+    background: #FCFAFD;
   }
 
   .ai-assist-button:disabled {
-    opacity: 0.45;
+    opacity: 0.42;
+  }
+
+  .ai-gemini-mark {
+    display: block;
+    width: 23px;
+    height: 23px;
+    filter: drop-shadow(0 2px 3px rgba(104, 82, 137, 0.10));
   }
 
   .ai-create-box {
@@ -7372,8 +7530,7 @@ const styles = `
   }
 
   .ai-section-title small,
-  .ai-result-heading small,
-  .ai-budget-note {
+  .ai-result-heading small {
     color: var(--muted);
     font-size: 0.66rem;
   }
@@ -7516,9 +7673,91 @@ const styles = `
     }
   }
 
-  .ai-budget-note {
-    margin: 2px 0 0;
+  .ai-limit-backdrop {
+    position: fixed;
+    z-index: 420;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 22px;
+    background: rgba(57, 49, 67, 0.18);
+    backdrop-filter: blur(10px);
+  }
+
+  .ai-limit-card {
+    display: grid;
+    width: min(100%, 330px);
+    justify-items: center;
+    padding: 24px 22px 20px;
+    border: 1px solid #E7E0EC;
+    border-radius: 24px;
     text-align: center;
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow:
+      0 24px 64px rgba(72, 59, 82, 0.16),
+      0 4px 14px rgba(72, 59, 82, 0.05);
+  }
+
+  .ai-limit-icon {
+    display: grid;
+    width: 56px;
+    height: 56px;
+    margin-bottom: 13px;
+    place-items: center;
+    border: 1px solid #E9E1EF;
+    border-radius: 18px;
+    background:
+      linear-gradient(
+        145deg,
+        rgba(244, 240, 252, 0.9),
+        rgba(255, 241, 233, 0.72)
+      );
+  }
+
+  .ai-limit-icon svg {
+    width: 31px;
+    height: 31px;
+  }
+
+  .ai-limit-kicker {
+    margin-bottom: 7px;
+    color: #8B8196;
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+  }
+
+  .ai-limit-card h2 {
+    margin: 0 0 9px;
+    color: #3D3748;
+    font-size: 1.08rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+  }
+
+  .ai-limit-card p {
+    margin: 0 0 18px;
+    color: #7C7385;
+    font-size: 0.75rem;
+    line-height: 1.55;
+  }
+
+  .ai-limit-button {
+    width: 100%;
+    min-height: 43px;
+    border: 1px solid #DCCFEB;
+    border-radius: 13px;
+    color: #51465E;
+    background:
+      linear-gradient(
+        90deg,
+        var(--lavender-soft),
+        var(--rose-soft),
+        var(--peach-soft)
+      );
+    font-size: 0.78rem;
+    font-weight: 800;
   }
 
   @media (prefers-reduced-motion: reduce) {
