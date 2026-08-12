@@ -4,7 +4,11 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
+    "check": "wrangler deploy --dry-run",
     "deploy": "wrangler deploy"
+  },
+  "engines": {
+    "node": ">=22"
   },
   "dependencies": {
     "jose": "^6.1.0"

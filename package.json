@@ -7,7 +7,15 @@
     "dev": "vite --host",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview --host"
+    "test": "node --test",
+    "check": "npm run lint && npm test && npm run build && npm run worker:check",
+    "preview": "vite preview --host",
+    "worker:dev": "npm --prefix worker run dev",
+    "worker:check": "npm --prefix worker run check",
+    "worker:deploy": "npm --prefix worker run deploy"
+  },
+  "engines": {
+    "node": ">=22"
   },
   "dependencies": {
     "chrono-node": "^2.10.1",

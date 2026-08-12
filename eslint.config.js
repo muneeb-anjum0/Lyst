@@ -17,5 +17,10 @@ export default defineConfig([
       globals: globals.browser,
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
+    rules: {
+      // Subscription effects intentionally set loading state before attaching
+      // their asynchronous listeners.
+      'react-hooks/set-state-in-effect': 'off',
+    },
   },
 ])
