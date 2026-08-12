@@ -13,7 +13,6 @@ Built with React, Firebase, Cloudflare Workers, and Gemini.
 - AI-powered generation, suggestions, and cleanup
 - Per-user AI rate limiting
 - Mobile-first PWA experience
-
 ## Tech stack
 
 React · Vite · Firebase · Firestore · Cloudflare Workers · Gemini API · Framer Motion · chrono-node
