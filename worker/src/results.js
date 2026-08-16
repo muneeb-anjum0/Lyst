@@ -1,6 +1,12 @@
 import { normalizeItemKey, normalizeText, safeNumber } from "./utils.js";
 
-const BUILD_ID = "lyst-worker-v8-2026-08-10";
+const BUILD_ID = "lyst-worker-v9-2026-08-16";
+
+function incompleteResponse(message) {
+  const error = new Error(message);
+  error.code = "incomplete-response";
+  return error;
+}
 
 export function extractGeminiText(
   response,
@@ -11,7 +17,7 @@ export function extractGeminiText(
       ?.content?.parts ||
     [];
 
-  return parts
+  const text = parts
     .filter(
       (part) =>
         typeof part?.text ===
@@ -25,6 +31,17 @@ export function extractGeminiText(
     )
     .join("")
     .trim();
+
+  if (!text) {
+    const finishReason = String(response?.candidates?.[0]?.finishReason || "UNKNOWN");
+    const error = new Error(`Gemini returned no text (${finishReason}).`);
+    error.code = finishReason === "MAX_TOKENS"
+      ? "incomplete-response"
+      : "empty-response";
+    throw error;
+  }
+
+  return text;
 }
 
 export function parseJsonResponse(
@@ -69,9 +86,9 @@ export function parseJsonResponse(
       ),
     );
 
-    throw new Error(
-      "Gemini returned invalid JSON.",
-    );
+    const error = new Error("Gemini returned invalid JSON.");
+    error.code = "incomplete-response";
+    throw error;
   }
 }
 
@@ -203,6 +220,12 @@ export function formatResult(
     action ===
     "generate"
   ) {
+    const items = sanitizeGeneratedItems(parsed?.items, 30);
+
+    if (items.length === 0) {
+      throw incompleteResponse("Gemini returned an empty generated list.");
+    }
+
     return {
       title:
         normalizeText(
@@ -211,11 +234,7 @@ export function formatResult(
         ) ||
         "Generated list",
 
-      items:
-        sanitizeGeneratedItems(
-          parsed?.items,
-          30,
-        ),
+      items,
 
       usage,
     };
@@ -300,6 +319,8 @@ export function formatResult(
           120,
         );
 
+      const reason = normalizeText(edit?.reason, 120);
+
       if (
         !Number.isInteger(
           index,
@@ -349,7 +370,9 @@ export function formatResult(
 
       edits.push({
         itemId,
+        originalText: normalizeText(original?.text, 120),
         text,
+        reason,
       });
 
       if (
@@ -366,8 +389,57 @@ export function formatResult(
     };
   }
 
+  if (action === "optimize_lists") {
+    const sourceItems = Array.isArray(task.optimizationItems)
+      ? task.optimizationItems
+      : [];
+    const proposedLists = Array.isArray(parsed?.lists) ? parsed.lists : [];
+    const usedIndexes = new Set();
+    const lists = [];
+
+    for (const proposedList of proposedLists.slice(0, 12)) {
+      const title = normalizeText(proposedList?.title, 40);
+      const items = [];
+
+      for (const proposedItem of Array.isArray(proposedList?.items)
+        ? proposedList.items
+        : []) {
+        const index = Number(proposedItem?.index);
+        const source = sourceItems[index];
+        const text = normalizeText(proposedItem?.text, 120);
+
+        if (
+          !Number.isInteger(index) ||
+          index < 0 ||
+          index >= sourceItems.length ||
+          usedIndexes.has(index) ||
+          !source ||
+          !text
+        ) {
+          continue;
+        }
+
+        usedIndexes.add(index);
+        items.push({ index, text });
+      }
+
+      if (title && items.length > 0) lists.push({ title, items });
+    }
+
+    if (lists.length === 0 || usedIndexes.size !== sourceItems.length) {
+      throw incompleteResponse("Gemini did not place every source item exactly once.");
+    }
+
+    return {
+      summary: normalizeText(parsed?.summary, 180),
+      lists,
+      coveredItems: usedIndexes.size,
+      totalItems: sourceItems.length,
+      usage,
+    };
+  }
+
   return {
     usage,
   };
 }
-

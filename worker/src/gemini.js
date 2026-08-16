@@ -1,6 +1,6 @@
 import { safeNumber } from "./utils.js";
 
-const BUILD_ID = "lyst-worker-v8-2026-08-10";
+const BUILD_ID = "lyst-worker-v9-2026-08-16";
 const MODEL = "gemini-3.5-flash-lite";
 const SYSTEM_INSTRUCTION = [
   "You are Lyst's compact list engine.",
@@ -66,10 +66,18 @@ async function geminiRequest(
       ),
     );
 
-    throw new Error(
+    const error = new Error(
       data?.error?.message ||
         `Gemini ${method} failed.`,
     );
+
+    error.code = response.status === 429
+      ? "provider-rate-limit"
+      : response.status >= 500
+        ? "provider-unavailable"
+        : "provider-request-failed";
+    error.status = response.status;
+    throw error;
   }
 
   return data;

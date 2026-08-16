@@ -903,6 +903,7 @@ export function ListScreen({
                 fill="url(#lyst-gemini-gradient)"
               />
             </svg>
+            <span>AI</span>
           </motion.button>
         </div>
       </section>
@@ -1139,4 +1140,3 @@ export function ListScreen({
     </motion.main>
   );
 }
-
