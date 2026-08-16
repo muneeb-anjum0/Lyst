@@ -21,7 +21,7 @@ import {
 export { LystBudget };
 export { parseJsonResponse, sanitizeGeneratedItems };
 
-const BUILD_ID = "lyst-worker-v8-2026-08-10";
+const BUILD_ID = "lyst-worker-v9-2026-08-16";
 
 const MAX_INPUT_TOKENS_PER_REQUEST = 1200;
 
@@ -399,6 +399,26 @@ export default {
           `[${BUILD_ID}] budget release failed:`,
           releaseError?.message ||
             releaseError,
+        );
+      }
+
+      const code = String(error?.code || "");
+
+      if (code === "incomplete-response" || code === "empty-response") {
+        return errorResponse(
+          "AI returned an incomplete response. Please try again.",
+          "incomplete-response",
+          502,
+          origin || "",
+        );
+      }
+
+      if (code === "provider-rate-limit" || code === "provider-unavailable") {
+        return errorResponse(
+          "The AI service is temporarily busy. Please try again shortly.",
+          "provider-unavailable",
+          503,
+          origin || "",
         );
       }
 

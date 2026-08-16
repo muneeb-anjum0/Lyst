@@ -57,6 +57,12 @@ export function getAiErrorMessage(error) {
   if (code.includes("failed-precondition") || code.includes("503")) {
     return "AI is not ready yet. Check the Worker setup.";
   }
+  if (code.includes("incomplete-response")) {
+    return "AI returned an incomplete result. Please try again.";
+  }
+  if (code.includes("provider-unavailable")) {
+    return "AI is temporarily busy. Please try again shortly.";
+  }
   if (code.includes("invalid-argument") || code.includes("400")) {
     return error?.message || "That AI request could not be processed.";
   }

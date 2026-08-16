@@ -94,8 +94,8 @@ export function AiAssistSheet({
               disabled={Boolean(workingAction)}
               onClick={() => run("organize")}
             >
-              <strong>Clean up names</strong>
-              <small>Fix inconsistent or unnecessarily messy item names.</small>
+              <strong>Optimize item names</strong>
+              <small>Make names clearer, consistent, and easier to scan.</small>
             </button>
           </div>
         )}
@@ -112,15 +112,19 @@ export function AiAssistSheet({
             {result.action === "organize" ? (
               <>
                 <div className="ai-result-heading">
-                  <strong>Cleanup preview</strong>
+                  <strong>Name optimization preview</strong>
                   <small>
                     {result.edits?.length || 0} suggested changes
                   </small>
                 </div>
 
-                <div className="ai-preview-items">
+                <div className="ai-name-edits">
                   {(result.edits || []).map((edit) => (
-                    <span key={edit.itemId}>{edit.text}</span>
+                    <div className="ai-name-edit" key={edit.itemId}>
+                      <span>{edit.originalText}</span>
+                      <strong>{edit.text}</strong>
+                      {edit.reason && <small>{edit.reason}</small>}
+                    </div>
                   ))}
                 </div>
 
@@ -131,7 +135,7 @@ export function AiAssistSheet({
                   whileTap={{ scale: 0.975 }}
                   onClick={() => onApplyEdits(result.edits || [])}
                 >
-                  Apply cleanup
+                  Apply name changes
                 </motion.button>
               </>
             ) : (
@@ -155,6 +159,9 @@ export function AiAssistSheet({
                         : ""}
                     </span>
                   ))}
+                  {!result.items?.length && (
+                    <span>This list already looks complete.</span>
+                  )}
                 </div>
 
                 <motion.button

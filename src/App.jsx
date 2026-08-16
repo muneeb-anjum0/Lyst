@@ -21,6 +21,7 @@ import {
   ConfirmationSheet,
   EditListSheet,
   NewListSheet,
+  OptimizeListsSheet,
   SearchSheet,
 } from "./components/Sheets.jsx";
 
@@ -74,6 +75,7 @@ export default function App() {
   const [accountOpen, setAccountOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
+  const [optimizeListsOpen, setOptimizeListsOpen] = useState(false);
 
   const [editList, setEditList] = useState(null);
   const [confirmation, setConfirmation] = useState(null);
@@ -712,6 +714,7 @@ export default function App() {
               onAccount={() => setAccountOpen(true)}
               onSearch={() => setSearchOpen(true)}
               onArchive={() => setArchiveOpen(true)}
+              onOptimize={() => setOptimizeListsOpen(true)}
               onRename={setEditList}
             />
           )}
@@ -764,6 +767,15 @@ export default function App() {
                 setArchiveOpen(false);
                 setSelectedList(list);
               }}
+            />
+          )}
+
+          {optimizeListsOpen && (
+            <OptimizeListsSheet
+              lists={activeLists}
+              user={user}
+              onClose={() => setOptimizeListsOpen(false)}
+              showToast={showToast}
             />
           )}
 

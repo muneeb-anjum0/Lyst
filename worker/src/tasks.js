@@ -252,11 +252,17 @@ const ORGANIZE_SCHEMA = {
             type:
               "string",
           },
+
+          reason: {
+            type:
+              "string",
+          },
         },
 
         required: [
           "index",
           "text",
+          "reason",
         ],
       },
     },
@@ -266,6 +272,89 @@ const ORGANIZE_SCHEMA = {
     "edits",
   ],
 };
+
+const OPTIMIZE_LISTS_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    summary: { type: "string" },
+    lists: {
+      type: "array",
+      minItems: 1,
+      maxItems: 12,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          title: { type: "string" },
+          items: {
+            type: "array",
+            minItems: 1,
+            maxItems: 120,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                index: { type: "integer", minimum: 0, maximum: 119 },
+                text: { type: "string" },
+              },
+              required: ["index", "text"],
+            },
+          },
+        },
+        required: ["title", "items"],
+      },
+    },
+  },
+  required: ["summary", "lists"],
+};
+
+function compactLists(lists) {
+  const rawLists = Array.isArray(lists) ? lists.slice(0, 12) : [];
+  const optimizationItems = [];
+  const packedLists = [];
+
+  rawLists.forEach((list, listIndex) => {
+    const title = normalizeText(list?.title, 80);
+    const packedItems = [];
+
+    for (const item of Array.isArray(list?.items) ? list.items : []) {
+      if (optimizationItems.length >= 120) break;
+      if (item?.completed) continue;
+
+      const text = normalizeText(item?.text, 120);
+      const itemId = normalizeText(item?.id, 100);
+      if (!text || !itemId) continue;
+
+      const index = optimizationItems.length;
+      const quantity = item?.quantity == null || item.quantity === ""
+        ? ""
+        : String(item.quantity).slice(0, 20);
+      const unit = normalizeText(item?.quantityUnit, 20);
+
+      optimizationItems.push({
+        index,
+        sourceListId: normalizeText(list?.id, 100),
+        sourceListIndex: listIndex,
+        sourceItemId: itemId,
+        text,
+      });
+
+      packedItems.push({
+        i: index,
+        t: text,
+        ...(quantity ? { q: quantity } : {}),
+        ...(unit ? { u: unit } : {}),
+      });
+    }
+
+    if (title && packedItems.length > 0) {
+      packedLists.push({ i: listIndex, t: title, items: packedItems });
+    }
+  });
+
+  return { rawLists, optimizationItems, packedLists };
+}
 
 export function buildTask(
   action,
@@ -307,6 +396,31 @@ export function buildTask(
 
       rawItems:
         [],
+    };
+  }
+
+  if (action === "optimize_lists") {
+    const { rawLists, optimizationItems, packedLists } = compactLists(data?.lists);
+
+    if (packedLists.length < 2 || optimizationItems.length < 2) {
+      return {
+        error: "Add active items to at least two lists before optimizing them.",
+      };
+    }
+
+    return {
+      contents: [
+        "TASK:optimize_list_collection",
+        `DATA:${JSON.stringify({ lists: packedLists })}`,
+        "Regroup every indexed item exactly once into coherent practical lists.",
+        "Use fewer lists only when their subjects genuinely belong together; never force unrelated items into a generic list.",
+        "Give each list a specific 1-4 word title. Improve item wording for clarity and consistency while preserving meaning and details.",
+        "Do not invent, remove, duplicate, or complete items. Return each original item index exactly once.",
+      ].join("\n"),
+      schema: OPTIMIZE_LISTS_SCHEMA,
+      rawItems: [],
+      rawLists,
+      optimizationItems,
     };
   }
 
@@ -382,7 +496,7 @@ export function buildTask(
 
         `DATA:${packed}`,
 
-        "Suggest at most 6 useful missing items. Never return an existing item.",
+        "Suggest 3-6 genuinely useful optional additions that fit this list's context. Never return an existing item or generic filler.",
       ].join("\n"),
 
       schema:
@@ -404,7 +518,7 @@ export function buildTask(
 
         `DATA:${packed}`,
 
-        "Return at most 10 obvious missing items. Avoid filler and existing items.",
+        "Infer the list's intended goal and return up to 10 essential missing items needed to make it practically complete. Avoid optional filler and existing items.",
       ].join("\n"),
 
       schema:
@@ -422,11 +536,13 @@ export function buildTask(
   ) {
     return {
       contents: [
-        "TASK:clean_item_names",
+        "TASK:optimize_item_names",
 
         `DATA:${packed}`,
 
-        "Return edits only for unclear, inconsistent, verbose, or badly formatted names. Preserve meaning. Use item index.",
+        "Improve only names that are unclear, inconsistent, redundant, or hard to scan.",
+        "Preserve meaning, proper nouns, quantities, and important details. Use concise natural capitalization; do not turn names into vague categories.",
+        "Return the original item index, improved text, and a short reason. Omit items that are already clear.",
       ].join("\n"),
 
       schema:
@@ -441,4 +557,3 @@ export function buildTask(
       "Unsupported AI action.",
   };
 }
-

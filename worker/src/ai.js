@@ -1,8 +1,9 @@
 export const ACTIONS = {
-  generate: { maxOutputTokens: 500 },
-  suggest: { maxOutputTokens: 180 },
-  complete: { maxOutputTokens: 260 },
-  organize: { maxOutputTokens: 260 },
+  generate: { maxOutputTokens: 1200 },
+  suggest: { maxOutputTokens: 500 },
+  complete: { maxOutputTokens: 800 },
+  organize: { maxOutputTokens: 650 },
+  optimize_lists: { maxOutputTokens: 2200 },
 };
 
 export { buildTask } from "./tasks.js";

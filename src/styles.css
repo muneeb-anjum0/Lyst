@@ -204,6 +204,15 @@
     background: var(--rose-soft);
   }
 
+  .home-actions .optimize-action {
+    border: 1px solid #D8CDEA;
+    background: var(--lavender-soft);
+  }
+
+  .home-actions button:disabled {
+    opacity: 0.45;
+  }
+
   .list-toolbar {
     margin-bottom: 8px;
   }
@@ -2667,18 +2676,26 @@
   }
 
   .ai-assist-button {
-    display: grid;
-    width: 40px;
+    display: flex;
+    width: auto;
     height: 40px;
     flex: 0 0 auto;
-    place-items: center;
-    padding: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 0 10px 0 8px;
     border: 1px solid #E3DDEC;
     border-radius: 13px;
     background: #FFFFFF;
     box-shadow:
       0 6px 16px rgba(74, 59, 91, 0.055),
       inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  }
+
+  .ai-assist-button > span {
+    color: #5C526A;
+    font-size: 0.7rem;
+    font-weight: 800;
   }
 
   .ai-assist-button:hover {
@@ -2793,6 +2810,85 @@
     color: #5B5263;
     background: #FAF7FC;
     font-size: 0.74rem;
+  }
+
+  .ai-name-edits,
+  .ai-list-plan {
+    display: grid;
+    gap: 8px;
+  }
+
+  .ai-name-edit,
+  .ai-list-plan section {
+    display: grid;
+    gap: 5px;
+    padding: 10px 11px;
+    border: 1px solid #E5DDED;
+    border-radius: 12px;
+    background: #FCFAFD;
+  }
+
+  .ai-name-edit > span {
+    color: var(--muted);
+    font-size: 0.69rem;
+    text-decoration: line-through;
+  }
+
+  .ai-name-edit > strong,
+  .ai-list-plan section > strong {
+    color: var(--text);
+    font-size: 0.78rem;
+  }
+
+  .ai-name-edit > small,
+  .ai-list-plan section > small,
+  .ai-organize-intro > small {
+    color: var(--muted);
+    font-size: 0.65rem;
+    line-height: 1.45;
+  }
+
+  .ai-organize-intro {
+    display: grid;
+    gap: 11px;
+    padding: 14px;
+    border: 1px solid #D8CDEA;
+    border-radius: 14px;
+    background: var(--lavender-soft);
+  }
+
+  .ai-organize-intro > strong {
+    font-size: 0.86rem;
+  }
+
+  .ai-organize-intro > p,
+  .ai-plan-summary,
+  .ai-plan-warning {
+    margin: 0;
+    color: #675E70;
+    font-size: 0.72rem;
+    line-height: 1.55;
+  }
+
+  .ai-list-plan section > div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+  .ai-list-plan section > div > span {
+    padding: 4px 7px;
+    border-radius: 999px;
+    color: #5B5263;
+    background: #FFFFFF;
+    font-size: 0.66rem;
+  }
+
+  .ai-plan-warning {
+    padding: 9px 10px;
+    border: 1px solid #E9C9D5;
+    border-radius: 10px;
+    background: var(--rose-soft);
   }
 
   .ai-action-grid {

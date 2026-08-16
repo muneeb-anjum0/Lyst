@@ -14,6 +14,7 @@ export function HomeScreen({
   onAccount,
   onSearch,
   onArchive,
+  onOptimize,
   onRename,
 }) {
   const listLongPressTimer = useRef(null);
@@ -146,6 +147,22 @@ export function HomeScreen({
           onClick={onArchive}
         >
           Archived {archivedCount > 0 ? `(${archivedCount})` : ""}
+        </motion.button>
+
+        <motion.button
+          className="optimize-action"
+          type="button"
+          disabled={lists.length < 2 || !navigator.onLine}
+          whileHover={reduceMotion ? {} : { y: -2, scale: 1.015 }}
+          whileTap={{ scale: 0.96 }}
+          transition={{
+            type: "spring",
+            stiffness: 720,
+            damping: 23,
+          }}
+          onClick={onOptimize}
+        >
+          Organize with AI
         </motion.button>
       </motion.div>
 
