@@ -38,6 +38,8 @@ AI requests flow through a Cloudflare Worker rather than directly from the brows
 - **Quota coordination:** The Worker counts prompt tokens before generation and reserves the input count plus the action’s maximum possible output against one Durable Object. Its single-threaded storage tracks global monthly tokens, per-user monthly tokens, and successful plus in-flight daily requests. A successful generation atomically converts the reservation into measured input/output usage; any generation or validation failure releases it, preventing concurrency races and failed calls from consuming successful-request allowance.
 - **Interface structure:** `App.jsx` owns session-level routing and shared sheet state. `HomeScreen` and `ListScreen` contain the primary list workflows, while focused bottom-sheet components handle creation, editing, search, account actions, AI previews, duplicate decisions, and cross-list optimization. Hooks isolate viewport behavior, services isolate AI and offline access, and deterministic libraries contain parsing, date, formatting, and merge rules. The mobile-first design uses thumb-reachable actions, preview-before-apply flows for destructive or AI-assisted changes, explicit offline/update feedback, and archived originals for reversible list reorganization.
 
+These implementation details are based on the repository’s parsing and merge utilities, Cloudflare Worker task/result pipeline, Durable Object budget operations, React component boundaries, and service-worker lifecycle code rather than inferred behavior. Runtime outcomes can still vary with browser support, network conditions, Firebase synchronization, and Gemini availability.
+
 ## Engineering challenges
 
 - Preserving a responsive list experience across online, offline, and reconnecting states.
@@ -48,6 +50,13 @@ AI requests flow through a Cloudflare Worker rather than directly from the brows
 - Treating list content and AI prompts as untrusted input and constraining generated output.
 - Ensuring failed AI requests release reserved capacity instead of consuming user quotas.
 - Keeping a feature-rich interface maintainable through modular frontend and Worker boundaries.
+
+Current limitations include:
+
+- AI assistance depends on the Cloudflare Worker, Gemini API, network availability, and configured usage budgets; provider errors or high usage can temporarily prevent generation.
+- Firestore can accept local writes offline, but reconciliation and remote updates may take time to appear after connectivity returns.
+- Natural-language parsing is deterministic and English-oriented, so ambiguous phrasing, uncommon units, locale-specific dates, and other edge cases may require manual correction.
+- Service-worker releases require the client to activate a newer cached build. Lyst exposes update state and defers activation until the user accepts it, but reloading can still interrupt unsaved interface state.
 
 ## Impact
 
