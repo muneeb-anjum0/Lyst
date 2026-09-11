@@ -93,7 +93,6 @@ export function HomeScreen({
           }}
         >
           <span className="app-label">Lyst</span>
-          <h1>Lists</h1>
         </motion.div>
 
         <motion.button
@@ -113,27 +112,39 @@ export function HomeScreen({
         </motion.button>
       </header>
 
-      <motion.div
-        className="home-actions"
+      <motion.h1
+        className="home-title"
+        initial={reduceMotion ? false : { opacity: 0, y: 5 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        Lists
+      </motion.h1>
+
+      <motion.button
+        className="home-search-field"
+        type="button"
         initial={reduceMotion ? false : { opacity: 0, y: 7 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: reduceMotion ? 0 : 0.035 }}
+        whileTap={{ scale: 0.992 }}
+        onClick={onSearch}
       >
-        <motion.button
-          className="search-action"
-          type="button"
-          whileHover={reduceMotion ? {} : { y: -2, scale: 1.015 }}
-          whileTap={{ scale: 0.96 }}
-          transition={{
-            type: "spring",
-            stiffness: 720,
-            damping: 23,
-          }}
-          onClick={onSearch}
-        >
-          Search
-        </motion.button>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="11" cy="11" r="6.5" />
+          <path d="m16 16 4 4" />
+        </svg>
+        <span>Search lists</span>
+      </motion.button>
 
+      <motion.nav
+        className="home-navigation"
+        aria-label="List views"
+        initial={reduceMotion ? false : { opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        <button className="home-filter active" type="button" aria-current="page">
+          All
+        </button>
         <motion.button
           className="archive-action"
           type="button"
@@ -146,7 +157,7 @@ export function HomeScreen({
           }}
           onClick={onArchive}
         >
-          Archived {archivedCount > 0 ? `(${archivedCount})` : ""}
+          Archived {archivedCount > 0 ? archivedCount : ""}
         </motion.button>
 
         <motion.button
@@ -162,9 +173,12 @@ export function HomeScreen({
           }}
           onClick={onOptimize}
         >
-          Organize with AI
+          <svg viewBox="0 0 32 32" aria-hidden="true">
+            <path d="M16 3.2C17.25 10.55 21.45 14.75 28.8 16C21.45 17.25 17.25 21.45 16 28.8C14.75 21.45 10.55 17.25 3.2 16C10.55 14.75 14.75 10.55 16 3.2Z" />
+          </svg>
+          <span>Organize with AI</span>
         </motion.button>
-      </motion.div>
+      </motion.nav>
 
       <motion.div
         className="list-toolbar"
@@ -172,9 +186,10 @@ export function HomeScreen({
         animate={{ opacity: 1 }}
         transition={{ delay: reduceMotion ? 0 : 0.075 }}
       >
-        <span>
-          {lists.length} {lists.length === 1 ? "list" : "lists"}
-        </span>
+        <div>
+          <strong>My lists</strong>
+          <span>{lists.length}</span>
+        </div>
 
         <motion.button
           className="create-button"
@@ -188,7 +203,7 @@ export function HomeScreen({
           }}
           onClick={onCreate}
         >
-          New
+          + New
         </motion.button>
       </motion.div>
 
@@ -232,15 +247,7 @@ export function HomeScreen({
                   stiffness: 585,
                   damping: 25,
                 }}
-                whileHover={
-                  reduceMotion
-                    ? {}
-                    : {
-                        x: 3,
-                        scale: 1.004,
-                      }
-                }
-                whileTap={{ scale: 0.982 }}
+                whileTap={{ backgroundColor: "#F4F2F6" }}
                 onPointerDown={(event) =>
                   startListLongPress(event, list)
                 }

@@ -47,7 +47,7 @@ export function NewListSheet({ onClose, onCreate, showToast }) {
   return (
     <Sheet onClose={onClose}>
       <form
-        className="sheet-content"
+        className="sheet-content new-list-sheet"
         onSubmit={(event) => {
           event.preventDefault();
           onCreate(title, generated?.items || []);
@@ -58,43 +58,49 @@ export function NewListSheet({ onClose, onCreate, showToast }) {
         <header className="sheet-header">
           <h2>New list</h2>
 
-          <button type="button" onClick={onClose}>
-            Done
+          <button className="danger-outline-action" type="button" onClick={onClose}>
+            Cancel
           </button>
         </header>
 
-        <input
-          className="sheet-input"
-          autoFocus
-          value={title}
-          maxLength={40}
-          placeholder="List name"
-          onChange={(event) => {
-            setTitle(event.target.value);
-            if (generated) setGenerated(null);
-          }}
-          onFocus={(event) => {
-            window.setTimeout(
-              () =>
-                event.currentTarget?.scrollIntoView({
-                  block: "center",
-                  behavior: "smooth",
-                }),
-              120,
-            );
-          }}
-        />
+        <label className="sheet-field-group">
+          <span>List name</span>
+          <input
+            className="sheet-input"
+            autoFocus
+            value={title}
+            maxLength={40}
+            placeholder="Hostel packing"
+            onChange={(event) => {
+              setTitle(event.target.value);
+              if (generated) setGenerated(null);
+            }}
+            onFocus={(event) => {
+              window.setTimeout(
+                () => event.currentTarget?.scrollIntoView({ block: "center", behavior: "smooth" }),
+                120,
+              );
+            }}
+          />
+        </label>
 
         <div className="ai-create-box">
           <div className="ai-section-title">
-            <strong>Generate with AI</strong>
-            <small>Optional</small>
+            <span>AI Assist</span>
+          </div>
+
+          <div className="ai-generate-heading">
+            <span className="ai-inline-sparkle" aria-hidden="true">✦</span>
+            <div>
+              <strong>Generate from a description</strong>
+              <small>Optional</small>
+            </div>
           </div>
 
           <textarea
             value={aiPrompt}
             maxLength={350}
-            rows={3}
+            rows={2}
             placeholder="e.g. Packing list for 5 winter days in Murree"
             onChange={(event) => {
               setAiPrompt(event.target.value);
