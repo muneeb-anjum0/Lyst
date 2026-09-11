@@ -934,11 +934,11 @@ export function ListScreen({
                     type="button"
                     animate={{
                       backgroundColor: item.completed
-                        ? "#CFEADF"
-                        : "#FFFFFF",
+                        ? "#D9F7FF"
+                        : "rgba(255, 255, 255, 0.82)",
                       borderColor: item.completed
-                        ? "#B6D7C7"
-                        : "#D6CDDC",
+                        ? "#62CAE3"
+                        : "#B8CCE8",
                     }}
                     whileTap={{ scale: 0.8 }}
                     onClick={() => toggleItem(item)}
