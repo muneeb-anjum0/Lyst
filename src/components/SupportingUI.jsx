@@ -91,21 +91,21 @@ export function PastelLoader({ label = "Loading Lyst" }) {
           damping: 23,
         }}
       >
-        <span className="loader-wordmark">LYST<span>.</span></span>
-
-        <div className="loader-signal" aria-hidden="true">
-          {[0, 1, 2].map((index) => (
-            <motion.span
-              key={index}
-              animate={{ scaleY: [0.35, 1, 0.35] }}
-              transition={{ duration: 0.9, delay: index * 0.12, repeat: Infinity, ease: "easeInOut" }}
-            />
-          ))}
+        <div className="pastel-loader-ring" aria-hidden="true">
+          <motion.span
+            className="pastel-loader-orbit"
+            animate={{ rotate: 360 }}
+            transition={{
+              duration: 0.55,
+              repeat: Infinity,
+              ease: "linear",
+            }}
+          />
         </div>
 
         <motion.p
           className="pastel-loader-label"
-          animate={{ opacity: [0.45, 1, 0.45] }}
+          animate={{ opacity: [0.5, 1, 0.5] }}
           transition={{
             duration: 0.8,
             repeat: Infinity,
