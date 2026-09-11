@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, MoreHorizontal, Plus, Sparkles } from "lucide-react";
 import { addDoc, collection, deleteDoc, doc, getDocs, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, writeBatch } from "firebase/firestore";
 import { adjustListSummary } from "../services/ai.js";
 import { cloneFirestoreData } from "../lib/appUtils.js";
@@ -31,7 +30,6 @@ export function ListScreen({
   const [naturalPreview, setNaturalPreview] = useState(null);
   const [duplicatePrompt, setDuplicatePrompt] = useState(null);
   const [aiOpen, setAiOpen] = useState(false);
-  const [itemView, setItemView] = useState("open");
   const [itemsListenerVersion, setItemsListenerVersion] = useState(0);
   const lastItemsRefreshRef = useRef(0);
 
@@ -187,12 +185,6 @@ export function ListScreen({
     () => [...activeItems, ...completedItems],
     [activeItems, completedItems],
   );
-
-  const displayedItems = useMemo(() => {
-    if (itemView === "done") return completedItems;
-    if (itemView === "all") return sortedItems;
-    return activeItems;
-  }, [activeItems, completedItems, itemView, sortedItems]);
 
 
   const liveParserPreview = useMemo(() => {
@@ -804,7 +796,7 @@ export function ListScreen({
           whileTap={{ scale: 0.94 }}
           onClick={onBack}
         >
-          <ArrowLeft size={18} /> <span>Lists</span>
+          Back
         </motion.button>
 
         <div className="menu-container">
@@ -814,7 +806,7 @@ export function ListScreen({
             whileTap={{ scale: 0.9 }}
             onClick={() => setMenuOpen((value) => !value)}
           >
-            <MoreHorizontal size={21} />
+            •••
           </motion.button>
 
           <AnimatePresence>
@@ -885,30 +877,47 @@ export function ListScreen({
             aria-label="Open Lyst AI"
             title="Lyst AI"
           >
-            <Sparkles size={17} /> <span>Think with AI</span>
+            <svg
+              className="ai-gemini-mark"
+              viewBox="0 0 32 32"
+              aria-hidden="true"
+            >
+              <defs>
+                <linearGradient
+                  id="lyst-gemini-gradient"
+                  x1="4"
+                  y1="4"
+                  x2="28"
+                  y2="28"
+                  gradientUnits="userSpaceOnUse"
+                >
+                  <stop offset="0" stopColor="#A9C8F8" />
+                  <stop offset="0.34" stopColor="#C7B8F2" />
+                  <stop offset="0.67" stopColor="#F1BED7" />
+                  <stop offset="1" stopColor="#F6D7B7" />
+                </linearGradient>
+              </defs>
+
+              <path
+                d="M16 3.2C17.25 10.55 21.45 14.75 28.8 16C21.45 17.25 17.25 21.45 16 28.8C14.75 21.45 10.55 17.25 3.2 16C10.55 14.75 14.75 10.55 16 3.2Z"
+                fill="url(#lyst-gemini-gradient)"
+              />
+            </svg>
+            <span>AI</span>
           </motion.button>
-        </div>
-        <div className="list-progress-track" aria-label={`${remainingItems} items remaining`}>
-          <span style={{ width: `${items.length ? Math.round((completedItems.length / items.length) * 100) : 0}%` }} />
         </div>
       </section>
 
-      <div className="item-view-switch" role="tablist" aria-label="Filter items">
-        {[["open", `Open ${activeItems.length}`], ["done", `Done ${completedItems.length}`], ["all", "All"]].map(([value, label]) => (
-          <button key={value} type="button" role="tab" aria-selected={itemView === value} onClick={() => setItemView(value)}>{label}</button>
-        ))}
-      </div>
-
       <section className="items">
-        {loading && displayedItems.length === 0 ? (
+        {loading && sortedItems.length === 0 ? (
           <>
             <ItemSkeleton />
             <ItemSkeleton />
             <ItemSkeleton />
           </>
-        ) : displayedItems.length > 0 ? (
+        ) : sortedItems.length > 0 ? (
           <AnimatePresence initial={false}>
-            {displayedItems.map((item) => {
+            {sortedItems.map((item) => {
               const metadata = getItemMetadata(item);
 
               return (
@@ -934,11 +943,11 @@ export function ListScreen({
                     type="button"
                     animate={{
                       backgroundColor: item.completed
-                        ? "#D9F7FF"
-                        : "rgba(255, 255, 255, 0.82)",
+                        ? "#CFEADF"
+                        : "#FFFFFF",
                       borderColor: item.completed
-                        ? "#62CAE3"
-                        : "#B8CCE8",
+                        ? "#B6D7C7"
+                        : "#D6CDDC",
                     }}
                     whileTap={{ scale: 0.8 }}
                     onClick={() => toggleItem(item)}
@@ -1068,7 +1077,7 @@ export function ListScreen({
           disabled={!newItem.trim() || adding}
           whileTap={{ scale: 0.84 }}
         >
-          <Plus size={22} />
+          +
         </motion.button>
       </form>
 
