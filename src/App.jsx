@@ -54,6 +54,7 @@ import { auth, db, firebaseReady } from "./lib/firebase.js";
 import { AuthScreen } from "./screens/AuthScreen.jsx";
 import { HomeScreen } from "./screens/HomeScreen.jsx";
 import { ListScreen } from "./screens/ListScreen.jsx";
+import { TodayScreen } from "./screens/TodayScreen.jsx";
 
 export default function App() {
   const reduceMotion = useReducedMotion();
@@ -70,6 +71,7 @@ export default function App() {
   const [lists, setLists] = useState([]);
   const [listsLoading, setListsLoading] = useState(false);
   const [selectedList, setSelectedList] = useState(null);
+  const [homeView, setHomeView] = useState("lists");
 
   const [newListOpen, setNewListOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -701,6 +703,19 @@ export default function App() {
               showToast={showToast}
               showUndo={showUndo}
             />
+          ) : homeView === "today" ? (
+            <TodayScreen
+              key="today-screen"
+              lists={activeLists}
+              user={user}
+              reduceMotion={reduceMotion}
+              onLists={() => setHomeView("lists")}
+              onOpenList={setSelectedList}
+              onSearch={() => setSearchOpen(true)}
+              onCreate={() => setNewListOpen(true)}
+              onAccount={() => setAccountOpen(true)}
+              showToast={showToast}
+            />
           ) : (
             <HomeScreen
               key="home-screen"
@@ -715,6 +730,7 @@ export default function App() {
               onSearch={() => setSearchOpen(true)}
               onArchive={() => setArchiveOpen(true)}
               onOptimize={() => setOptimizeListsOpen(true)}
+              onToday={() => setHomeView("today")}
               onRename={setEditList}
             />
           )}

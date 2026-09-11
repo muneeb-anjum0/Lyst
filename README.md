@@ -19,7 +19,8 @@ Lyst addresses these limitations by allowing users to write items naturally, suc
 - Merge duplicate items while preserving compatible quantity information.
 - Synchronize per-user data through Firestore with offline persistence.
 - Continue using cached lists during extended offline periods.
-- Generate lists, suggest missing items, complete partial lists, and clean item names with AI.
+- Focus overdue and due-today items from every list in one Today queue.
+- Generate lists, suggest missing items, complete partial lists, and optimize item names with AI.
 - Protect AI endpoints with Firebase ID-token verification and origin restrictions.
 - Enforce daily request limits and monthly token budgets per user.
 - Provide a mobile-first PWA experience with service-worker updates and offline caching.
