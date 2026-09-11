@@ -116,13 +116,18 @@ export function AccountSheet({
           </div>
         </div>
 
-        <div className="offline-access-note">
-          <strong>Offline access</strong>
-          <span>Available for up to 60 days after an online refresh.</span>
+        <span className="settings-section-label">Offline</span>
+
+        <div className="settings-row offline-access-note">
+          <div>
+            <strong>Offline access</strong>
+            <span>Available for up to 60 days after an online refresh.</span>
+          </div>
+          <span className="settings-chevron" aria-hidden="true">›</span>
         </div>
 
         <motion.button
-          className="primary-button account-signout-button"
+          className="account-signout-button"
           type="button"
           whileTap={{ scale: 0.975 }}
           onClick={onSignOut}
@@ -133,4 +138,3 @@ export function AccountSheet({
     </Sheet>
   );
 }
-

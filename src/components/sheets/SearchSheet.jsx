@@ -102,13 +102,18 @@ export function SearchSheet({
           </button>
         </header>
 
-        <input
-          className="sheet-input"
-          autoFocus
-          value={search}
-          placeholder="Search lists and items"
-          onChange={(event) => setSearch(event.target.value)}
-        />
+        <label className="sheet-search-field">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5" />
+            <path d="m16 16 4 4" />
+          </svg>
+          <input
+            autoFocus
+            value={search}
+            placeholder="Search lists and items"
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </label>
 
         <div className="search-results">
           {!search.trim() ? (

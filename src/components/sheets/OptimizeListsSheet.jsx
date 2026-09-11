@@ -189,11 +189,17 @@ export function OptimizeListsSheet({
 
         {!plan && !working && (
           <div className="ai-organize-intro">
+            <span className="organize-sparkle" aria-hidden="true">✦</span>
             <strong>Turn scattered lists into clearer groups</strong>
             <p>
-              AI will regroup active items, improve list titles, and refine item
-              names. Your current lists will be archived, not deleted.
+              Preview a clearer structure before changing anything. Your current
+              lists will be archived, not deleted.
             </p>
+            <div className="ai-capability-list">
+              <span>Regroup similar items</span>
+              <span>Improve list titles</span>
+              <span>Normalize item names</span>
+            </div>
             <small>Uses one AI request. Up to 12 lists and 120 active items.</small>
             <motion.button
               className="primary-button"

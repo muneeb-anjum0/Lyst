@@ -998,13 +998,15 @@ export function ListScreen({
                   <div className="item-actions">
                     <button
                       type="button"
+                      aria-label={`Edit ${item.text}`}
                       onClick={() => setEditingItem(item)}
                     >
-                      Edit
+                      •••
                     </button>
 
                     <button
                       type="button"
+                      aria-label={`Delete ${item.text}`}
                       onClick={() => removeItem(item)}
                     >
                       ×
