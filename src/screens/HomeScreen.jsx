@@ -5,8 +5,6 @@ import { getEmailInitial } from "../lib/appUtils.js";
 import { ListSkeleton } from "../components/SupportingUI.jsx";
 import { AppDock } from "../components/AppDock.jsx";
 
-const CARD_TONES = ["cobalt", "tangerine", "violet", "lime", "rose", "aqua"];
-
 export function HomeScreen({ lists, archivedCount, loading, user, reduceMotion, onOpenList, onCreate, onAccount, onSearch, onArchive, onOptimize, onToday, onRename }) {
   const [filter, setFilter] = useState("all");
   const listLongPressTimer = useRef(null);
@@ -59,9 +57,9 @@ export function HomeScreen({ lists, archivedCount, loading, user, reduceMotion, 
       </motion.section>
 
       <section className="quick-lane" aria-label="Quick actions">
-        <motion.button type="button" whileTap={{ scale: 0.96 }} onClick={onCreate}><span><Plus size={20} /></span><strong>New list</strong><small>Start fresh</small></motion.button>
-        <motion.button type="button" whileTap={{ scale: 0.96 }} onClick={onToday}><span><ListTodo size={20} /></span><strong>Today</strong><small>What matters</small></motion.button>
-        <motion.button type="button" disabled={lists.length < 2 || !navigator.onLine} whileTap={{ scale: 0.96 }} onClick={onOptimize}><span><Sparkles size={20} /></span><strong>Reframe</strong><small>Organize with AI</small></motion.button>
+        <motion.button type="button" whileTap={{ scale: 0.98 }} onClick={onCreate}><span><Plus size={18} /></span><strong>Create</strong><small>New list</small></motion.button>
+        <motion.button type="button" whileTap={{ scale: 0.98 }} onClick={onToday}><span><ListTodo size={18} /></span><strong>Focus</strong><small>Today</small></motion.button>
+        <motion.button type="button" disabled={lists.length < 2 || !navigator.onLine} whileTap={{ scale: 0.98 }} onClick={onOptimize}><span><Sparkles size={18} /></span><strong>Reframe</strong><small>With AI</small></motion.button>
       </section>
 
       <section className="collection-section">
@@ -76,7 +74,7 @@ export function HomeScreen({ lists, archivedCount, loading, user, reduceMotion, 
                 const count = Math.max(0, Number(list.itemCount) || 0);
                 const done = Math.max(0, Number(list.completedCount) || 0);
                 const percentage = count ? Math.min(100, Math.round((done / count) * 100)) : 0;
-                return <motion.button layout key={list.id} className={`lyst-card tone-${CARD_TONES[index % CARD_TONES.length]}`} type="button" initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 22, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, scale: 0.92 }} transition={{ delay: reduceMotion ? 0 : Math.min(index * 0.045, 0.25), type: "spring", stiffness: 380, damping: 27 }} whileHover={reduceMotion ? {} : { y: -4 }} whileTap={{ scale: 0.97 }} onPointerDown={(event) => startLongPress(event, list)} onPointerUp={() => window.clearTimeout(listLongPressTimer.current)} onPointerCancel={() => window.clearTimeout(listLongPressTimer.current)} onPointerLeave={() => window.clearTimeout(listLongPressTimer.current)} onContextMenu={(event) => { event.preventDefault(); onRename(list); }} onClick={() => openList(list)}>
+                return <motion.button layout key={list.id} className="lyst-card" type="button" initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 12 }} transition={{ delay: reduceMotion ? 0 : Math.min(index * 0.04, 0.2), type: "spring", stiffness: 420, damping: 30 }} whileHover={reduceMotion ? {} : { x: 4 }} whileTap={{ scale: 0.99 }} onPointerDown={(event) => startLongPress(event, list)} onPointerUp={() => window.clearTimeout(listLongPressTimer.current)} onPointerCancel={() => window.clearTimeout(listLongPressTimer.current)} onPointerLeave={() => window.clearTimeout(listLongPressTimer.current)} onContextMenu={(event) => { event.preventDefault(); onRename(list); }} onClick={() => openList(list)}>
                   <span className="card-number">{String(index + 1).padStart(2, "0")}</span><ArrowUpRight className="card-arrow" size={20} /><span className="card-copy"><strong>{list.title}</strong><small>{count - done} open · {count} total</small></span><span className="card-progress"><i style={{ width: `${percentage}%` }} /></span>
                 </motion.button>;
               })}
