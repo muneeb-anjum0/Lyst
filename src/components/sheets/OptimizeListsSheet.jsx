@@ -190,7 +190,7 @@ export function OptimizeListsSheet({
         {!plan && !working && (
           <div className="ai-organize-intro">
             <span className="organize-sparkle" aria-hidden="true">✦</span>
-            <strong>Turn scattered lists into clearer groups</strong>
+            <strong>Bring similar lists together</strong>
             <p>
               Preview a clearer structure before changing anything. Your current
               lists will be archived, not deleted.

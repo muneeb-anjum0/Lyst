@@ -1,4 +1,4 @@
-const APP_CACHE = "lyst-app-v6";
+const APP_CACHE = "lyst-app-v7";
 const META_CACHE = "lyst-meta-v6";
 
 const CACHE_REFRESH_KEY = "/__lyst_cache_refresh__";
@@ -251,7 +251,7 @@ function createOfflinePage(title, message) {
       content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     >
 
-    <meta name="theme-color" content="#FFF8F4">
+    <meta name="theme-color" content="#F3F3F1">
 
     <title>Lyst</title>
 
@@ -267,11 +267,10 @@ function createOfflinePage(title, message) {
         display: grid;
         place-items: center;
         padding: 24px;
-        color: #3B3650;
-        background: #FFF8F4;
+        color: #151515;
+        background: #F3F3F1;
         font-family:
-          "Avenir Next",
-          Avenir,
+          "Plus Jakarta Sans",
           -apple-system,
           BlinkMacSystemFont,
           "Segoe UI",
@@ -281,11 +280,7 @@ function createOfflinePage(title, message) {
 
       main {
         width: min(100%, 340px);
-        padding: 22px;
         text-align: center;
-        border: 1px solid #E8E0EC;
-        border-radius: 20px;
-        background: #FFFDFC;
       }
 
       h1 {
@@ -297,7 +292,7 @@ function createOfflinePage(title, message) {
 
       p {
         margin: 0;
-        color: #766F80;
+        color: #666666;
         font-size: 15px;
         line-height: 1.5;
       }

@@ -871,6 +871,17 @@ export function ListScreen({
             className="ai-assist-button"
             type="button"
             disabled={!navigator.onLine}
+            animate={
+              reduceMotion
+                ? {}
+                : { scale: [1, 1.04, 1], rotate: [0, 4, 0] }
+            }
+            transition={{
+              duration: 0.7,
+              repeat: reduceMotion ? 0 : Infinity,
+              repeatDelay: 5.3,
+              ease: "easeInOut",
+            }}
             whileHover={reduceMotion ? {} : { y: -1, scale: 1.04 }}
             whileTap={{ scale: 0.9 }}
             onClick={() => setAiOpen(true)}

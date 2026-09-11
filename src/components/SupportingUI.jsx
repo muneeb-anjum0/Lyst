@@ -83,34 +83,39 @@ export function PastelLoader({ label = "Loading Lyst" }) {
     <main className="pastel-loader-page">
       <motion.div
         className="pastel-loader-wrap"
-        initial={{ opacity: 0, scale: 0.96 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{
-          type: "spring",
-          stiffness: 480,
-          damping: 23,
-        }}
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2, ease: "easeOut" }}
       >
-        <div className="pastel-loader-ring" aria-hidden="true">
-          <motion.span
-            className="pastel-loader-orbit"
-            animate={{ rotate: 360 }}
-            transition={{
-              duration: 0.55,
-              repeat: Infinity,
-              ease: "linear",
-            }}
+        <motion.strong
+          className="pastel-loader-brand"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.18 }}
+        >
+          Lyst
+        </motion.strong>
+
+        <div className="pastel-loader-list" aria-hidden="true">
+          {[0, 1, 2].map((line) => (
+            <motion.span
+              key={line}
+              initial={{ scaleX: 0, opacity: 0 }}
+              animate={{ scaleX: 1, opacity: 1 }}
+              transition={{ delay: 0.08 + line * 0.09, duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+            />
+          ))}
+          <motion.i
+            animate={{ y: [0, 18, 36, 0] }}
+            transition={{ duration: 1.35, repeat: Infinity, ease: "easeInOut", times: [0, 0.3, 0.62, 1] }}
           />
         </div>
 
         <motion.p
           className="pastel-loader-label"
-          animate={{ opacity: [0.5, 1, 0.5] }}
-          transition={{
-            duration: 0.8,
-            repeat: Infinity,
-            ease: "easeInOut",
-          }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.32, duration: 0.18 }}
         >
           {label}
         </motion.p>

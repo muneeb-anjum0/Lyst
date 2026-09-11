@@ -117,8 +117,17 @@ export function HomeScreen({
         initial={reduceMotion ? false : { opacity: 0, y: 5 }}
         animate={{ opacity: 1, y: 0 }}
       >
-        Lists
+        Your lists
       </motion.h1>
+
+      <motion.p
+        className="home-summary"
+        initial={reduceMotion ? false : { opacity: 0, y: 3 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: reduceMotion ? 0 : 0.025 }}
+      >
+        {lists.length} active {lists.length === 1 ? "list" : "lists"}
+      </motion.p>
 
       <motion.button
         className="home-search-field"
@@ -133,7 +142,7 @@ export function HomeScreen({
           <circle cx="11" cy="11" r="6.5" />
           <path d="m16 16 4 4" />
         </svg>
-        <span>Search lists</span>
+        <span>Search anything...</span>
       </motion.button>
 
       <motion.nav

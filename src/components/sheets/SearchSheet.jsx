@@ -117,9 +117,10 @@ export function SearchSheet({
 
         <div className="search-results">
           {!search.trim() ? (
-            <p className="search-message">
-              Search across all active lists.
-            </p>
+            <div className="search-empty-state">
+              <span>Active lists</span>
+              <p>Start typing to search everything.</p>
+            </div>
           ) : loading && results.length === 0 ? (
             <p className="search-message">Searching...</p>
           ) : results.length === 0 ? (

@@ -119,12 +119,12 @@ export function AuthScreen({ showToast }) {
         transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
       >
         <div className="auth-brand-balanced auth-brand-text-only">
-          <div>
-            <div className="auth-name">Lyst</div>
-            <div className="auth-kicker">
-              little lists, less brain clutter
-            </div>
+          <div className="auth-list-motif" aria-hidden="true">
+            <span />
+            <span />
+            <span />
           </div>
+          <div className="auth-name">Lyst</div>
         </div>
 
         <AnimatePresence mode="wait">
@@ -137,13 +137,17 @@ export function AuthScreen({ showToast }) {
             transition={{ duration: 0.18, ease: "easeOut" }}
           >
             <h1>
-              {mode === "signin" ? "Welcome back" : "Make it yours"}
+              {mode === "signin" ? (
+                <>Your thoughts,<br />without the clutter.</>
+              ) : (
+                <>A calmer place<br />for every plan.</>
+              )}
             </h1>
 
             <p>
               {mode === "signin"
-                ? "Your lists are right where you left them."
-                : "A calm little home for everything you want to remember."}
+                ? "Sign in and pick up exactly where you left off."
+                : "Create your account and give every thought a place."}
             </p>
           </motion.div>
         </AnimatePresence>
