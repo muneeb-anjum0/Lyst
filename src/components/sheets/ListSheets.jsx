@@ -63,6 +63,8 @@ export function NewListSheet({ onClose, onCreate, showToast }) {
           </button>
         </header>
 
+        <p className="new-list-prompt">What are you planning?</p>
+
         <label className="sheet-field-group">
           <span>List name</span>
           <input

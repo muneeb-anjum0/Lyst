@@ -23,7 +23,10 @@ export function ArchiveSheet({
 
         <div className="archive-list">
           {lists.length === 0 ? (
-            <p className="search-message">No archived lists.</p>
+            <div className="archive-empty">
+              <strong>Nothing archived yet.</strong>
+              <span>Lists you archive will appear here.</span>
+            </div>
           ) : (
             lists.map((list) => (
               <div className="archive-row" key={list.id}>

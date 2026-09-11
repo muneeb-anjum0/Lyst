@@ -68,9 +68,9 @@ export function Sheet({ children, onClose }) {
     >
       <motion.div
         className="sheet"
-        initial={{ y: "100%", scale: 0.985 }}
-        animate={{ y: dragY, scale: 1 }}
-        exit={{ y: "100%", scale: 0.985 }}
+        initial={{ y: 48, opacity: 0, scale: 0.98 }}
+        animate={{ y: dragY, opacity: 1, scale: 1 }}
+        exit={{ y: 36, opacity: 0, scale: 0.98 }}
         transition={{
           type: "spring",
           stiffness: 520,

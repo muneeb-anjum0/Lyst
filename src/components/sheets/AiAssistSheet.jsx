@@ -58,9 +58,9 @@ export function AiAssistSheet({
         <div className="sheet-handle" />
 
         <header className="sheet-header ai-assist-header">
-          <div>
-            <span className="ai-assist-kicker">LYST ASSIST</span>
-            <h2>{list.title}</h2>
+          <div className="ai-assist-brand">
+            <span className="ai-inline-sparkle" aria-hidden="true">✦</span>
+            <span className="ai-assist-kicker">Lyst Assist</span>
           </div>
 
           <button
@@ -72,7 +72,14 @@ export function AiAssistSheet({
           </button>
         </header>
 
-        {!result && (
+        {!result && !workingAction && (
+          <div className="ai-assist-intro">
+            <h2>Make this list smarter</h2>
+            <p>{list.title}</p>
+          </div>
+        )}
+
+        {!result && !workingAction && (
           <>
             <p className="ai-safety-note">
               Preview first. Nothing changes until you apply.
@@ -109,8 +116,8 @@ export function AiAssistSheet({
               onClick={() => run("organize")}
             >
               <span className="ai-action-copy">
-                <strong>Optimize item names</strong>
-                <small>Make names clearer and easier to scan.</small>
+                <strong>Clean up names</strong>
+                <small>Shorten and normalize messy item names.</small>
               </span>
               <span className="ai-action-badge">Tidy</span>
             </button>
@@ -130,7 +137,7 @@ export function AiAssistSheet({
             {result.action === "organize" ? (
               <>
                 <div className="ai-result-heading">
-                  <strong>Name optimization preview</strong>
+                  <strong>Cleanup preview</strong>
                   <small>
                     {result.edits?.length || 0} suggested changes
                   </small>
@@ -153,7 +160,7 @@ export function AiAssistSheet({
                   whileTap={{ scale: 0.975 }}
                   onClick={() => onApplyEdits(result.edits || [])}
                 >
-                  Apply name changes
+                  Apply cleanup
                 </motion.button>
               </>
             ) : (
