@@ -59,6 +59,7 @@ export function Sheet({ children, onClose }) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
+      transition={{ duration: 0.18, ease: "easeOut" }}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) {
           onClose();
@@ -72,9 +73,9 @@ export function Sheet({ children, onClose }) {
         exit={{ y: "100%", scale: 0.985 }}
         transition={{
           type: "spring",
-          stiffness: 525,
-          damping: 25,
-          mass: 0.68,
+          stiffness: 520,
+          damping: 38,
+          mass: 0.8,
         }}
       >
         <div

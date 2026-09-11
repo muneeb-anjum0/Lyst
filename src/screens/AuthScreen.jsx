@@ -31,8 +31,6 @@ export function AuthScreen({ showToast }) {
       await signInWithPopup(auth, provider);
       await refreshOfflineAccess();
 
-      // Keep the loader visible until App receives the authenticated user
-      // and unmounts this screen. This prevents the login card flashing back.
     } catch (error) {
       console.error(error);
       showToast(getAuthError(error));
@@ -75,7 +73,6 @@ export function AuthScreen({ showToast }) {
 
       await refreshOfflineAccess();
 
-      // Keep the loader visible until App switches to the signed-in view.
     } catch (error) {
       console.error(error);
       showToast(getAuthError(error));
@@ -115,27 +112,12 @@ export function AuthScreen({ showToast }) {
 
   return (
     <main className="auth-page auth-page-balanced">
-      <div className="auth-decoration auth-decoration-one" aria-hidden="true" />
-      <div className="auth-decoration auth-decoration-two" aria-hidden="true" />
-
       <motion.section
         className="auth-panel auth-panel-balanced"
         initial={{ opacity: 0, y: 16, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{
-          type: "spring",
-          stiffness: 450,
-          damping: 22,
-        }}
+        transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
       >
-        <div className="auth-top-accent" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-          <span />
-          <span />
-        </div>
-
         <div className="auth-brand-balanced auth-brand-text-only">
           <div>
             <div className="auth-name">Lyst</div>
@@ -152,11 +134,7 @@ export function AuthScreen({ showToast }) {
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
-            transition={{
-              type: "spring",
-              stiffness: 540,
-              damping: 24,
-            }}
+            transition={{ duration: 0.18, ease: "easeOut" }}
           >
             <h1>
               {mode === "signin" ? "Welcome back" : "Make it yours"}

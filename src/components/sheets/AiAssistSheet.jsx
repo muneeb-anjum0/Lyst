@@ -57,27 +57,38 @@ export function AiAssistSheet({
       <div className="sheet-content">
         <div className="sheet-handle" />
 
-        <header className="sheet-header">
-          <h2>AI for {list.title}</h2>
+        <header className="sheet-header ai-assist-header">
+          <div>
+            <span className="ai-assist-kicker">LYST ASSIST</span>
+            <h2>{list.title}</h2>
+          </div>
 
           <button
             className="danger-outline-action"
             type="button"
             onClick={onClose}
           >
-            Cancel
+            Close
           </button>
         </header>
 
         {!result && (
-          <div className="ai-action-grid">
+          <>
+            <p className="ai-safety-note">
+              Preview first. Nothing changes until you apply.
+            </p>
+
+            <div className="ai-action-grid">
             <button
               type="button"
               disabled={Boolean(workingAction)}
               onClick={() => run("suggest")}
             >
-              <strong>Suggest missing items</strong>
-              <small>Useful additions based only on this list.</small>
+              <span className="ai-action-copy">
+                <strong>Suggest missing items</strong>
+                <small>Find useful additions based on this list.</small>
+              </span>
+              <span className="ai-action-badge">Quick</span>
             </button>
 
             <button
@@ -85,8 +96,11 @@ export function AiAssistSheet({
               disabled={Boolean(workingAction)}
               onClick={() => run("complete")}
             >
-              <strong>Complete this list</strong>
-              <small>Fill obvious gaps without repeating items.</small>
+              <span className="ai-action-copy">
+                <strong>Complete this list</strong>
+                <small>Fill obvious gaps without repeating items.</small>
+              </span>
+              <span className="ai-action-badge">Thorough</span>
             </button>
 
             <button
@@ -94,10 +108,14 @@ export function AiAssistSheet({
               disabled={Boolean(workingAction)}
               onClick={() => run("organize")}
             >
-              <strong>Optimize item names</strong>
-              <small>Make names clearer, consistent, and easier to scan.</small>
+              <span className="ai-action-copy">
+                <strong>Optimize item names</strong>
+                <small>Make names clearer and easier to scan.</small>
+              </span>
+              <span className="ai-action-badge">Tidy</span>
             </button>
-          </div>
+            </div>
+          </>
         )}
 
         {workingAction && (
