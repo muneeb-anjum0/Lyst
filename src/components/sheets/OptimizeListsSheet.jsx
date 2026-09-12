@@ -28,6 +28,7 @@ export function OptimizeListsSheet({
   const [working, setWorking] = useState(false);
   const [applying, setApplying] = useState(false);
   const [plan, setPlan] = useState(null);
+  const [errorMessage, setErrorMessage] = useState("");
   const [limitPopupOpen, setLimitPopupOpen] = useState(false);
 
   async function createPlan() {
@@ -36,6 +37,7 @@ export function OptimizeListsSheet({
     try {
       setWorking(true);
       setPlan(null);
+      setErrorMessage("");
 
       let remainingItems = MAX_ITEMS;
       const loadedLists = [];
@@ -61,7 +63,7 @@ export function OptimizeListsSheet({
       }
 
       if (loadedLists.length < 2) {
-        showToast("Add active items to at least two lists first.");
+        setErrorMessage("Add active items to at least two lists first.");
         return;
       }
 
@@ -102,7 +104,7 @@ export function OptimizeListsSheet({
     } catch (error) {
       console.error(error);
       if (isAiLimitError(error)) setLimitPopupOpen(true);
-      else showToast(getAiErrorMessage(error));
+      else setErrorMessage(getAiErrorMessage(error));
     } finally {
       setWorking(false);
     }
@@ -209,6 +211,16 @@ export function OptimizeListsSheet({
             >
               Create organization preview
             </motion.button>
+          </div>
+        )}
+
+        {errorMessage && !working && (
+          <div className="ai-organize-error" role="alert">
+            <div>
+              <strong>Couldn’t organize these lists</strong>
+              <span>{errorMessage}</span>
+            </div>
+            <button type="button" onClick={createPlan}>Try again</button>
           </div>
         )}
 

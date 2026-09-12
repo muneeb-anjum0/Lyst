@@ -3,7 +3,7 @@ export const ACTIONS = {
   suggest: { maxOutputTokens: 500 },
   complete: { maxOutputTokens: 800 },
   organize: { maxOutputTokens: 650 },
-  optimize_lists: { maxOutputTokens: 2200 },
+  optimize_lists: { maxOutputTokens: 1400 },
 };
 
 export { buildTask } from "./tasks.js";

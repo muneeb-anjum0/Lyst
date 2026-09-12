@@ -301,10 +301,10 @@ button:disabled { cursor: not-allowed; opacity: 0.42; }
 .mobile-back-swipe-zone { position: fixed; inset: 0 auto 0 0; z-index: 6; width: 22px; touch-action: pan-y; }
 .mobile-back-swipe-indicator { position: fixed; top: 50%; left: 5px; z-index: 20; width: 4px; height: 44px; border-radius: 99px; background: #c7b8f2; transform: translateY(-50%); }
 
-.sheet-backdrop { position: fixed; inset: 0; z-index: 30; display: flex; align-items: flex-end; justify-content: center; padding: max(16px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); background: rgba(15, 15, 15, .58); backdrop-filter: blur(9px); -webkit-backdrop-filter: blur(9px); }
-.sheet { position: relative; width: min(100%, 480px); max-height: calc(100dvh - max(28px, env(safe-area-inset-top))); border: 1px solid rgba(255,255,255,.34); border-radius: 24px; background: var(--bg); box-shadow: 0 28px 80px rgba(0,0,0,.3); overflow: hidden; }
+.sheet-backdrop { position: fixed; inset: 0; z-index: 30; display: flex; align-items: flex-end; justify-content: center; padding: max(16px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); background: rgba(15, 15, 15, .58); backdrop-filter: blur(9px); -webkit-backdrop-filter: blur(9px); overflow: hidden; }
+.sheet { position: relative; width: min(100%, 480px); max-height: 100%; min-height: 0; border: 1px solid rgba(255,255,255,.34); border-radius: 24px; background: var(--bg); box-shadow: 0 28px 80px rgba(0,0,0,.3); overflow: hidden; }
 .sheet-gesture-zone { position: absolute; inset: 0 0 auto; z-index: 2; height: 30px; touch-action: none; cursor: grab; }
-.sheet-content { max-height: inherit; padding: 12px 18px max(20px, calc(14px + env(safe-area-inset-bottom))); overflow-y: auto; overscroll-behavior: contain; }
+.sheet-content { max-height: 100%; min-height: 0; padding: 12px 18px max(20px, calc(14px + env(safe-area-inset-bottom))); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
 .sheet-handle { width: 42px; height: 4px; margin: 0 auto 20px; border-radius: 99px; background: #b8b8b4; }
 .sheet-header { justify-content: space-between; align-items: center; gap: 16px; min-height: 48px; margin: 0 -2px 20px; padding-bottom: 15px; border-bottom: 2px solid var(--graphite); }
 .sheet-header h2, .confirmation-content h2 { margin: 0; max-width: 78%; font-family: "Playfair Display", Georgia, serif; font-size: 1.72rem; font-weight: 900; letter-spacing: -.045em; line-height: 1.03; }
@@ -381,6 +381,11 @@ textarea { padding: 12px 14px; resize: vertical; line-height: 1.5; }
 .ai-organize-intro p, .ai-plan-summary { margin: 0; color: var(--muted); font-size: .8rem; line-height: 1.55; }
 .ai-organize-intro small { color: var(--faint); font-size: .68rem; }
 .ai-organize-intro .primary-button { margin-top: 6px; }
+.ai-organize-error { display: flex; align-items: center; gap: 12px; margin-top: 10px; padding: 12px 13px; border: 1px solid var(--graphite); border-radius: 14px; background: #fff; }
+.ai-organize-error > div { display: grid; flex: 1; gap: 3px; min-width: 0; }
+.ai-organize-error strong { font-size: .76rem; }
+.ai-organize-error span { color: var(--muted); font-size: .68rem; line-height: 1.4; overflow-wrap: anywhere; }
+.ai-organize-error button { flex: 0 0 auto; min-height: 34px; padding: 0 11px; border: 0; border-radius: 999px; background: var(--graphite); color: #fff; font-size: .68rem; font-weight: 800; }
 .ai-capability-list { margin: 6px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: left; }
 .ai-capability-list span { display: block; padding: 10px 2px; font-size: .78rem; font-weight: 650; }
 .ai-capability-list span + span { border-top: 1px solid var(--line); }

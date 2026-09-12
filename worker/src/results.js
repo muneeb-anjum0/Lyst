@@ -406,7 +406,7 @@ export function formatResult(
         : []) {
         const index = Number(proposedItem?.index);
         const source = sourceItems[index];
-        const text = normalizeText(proposedItem?.text, 120);
+        const text = normalizeText(proposedItem?.text, 120) || source?.text;
 
         if (
           !Number.isInteger(index) ||
@@ -426,8 +426,32 @@ export function formatResult(
       if (title && items.length > 0) lists.push({ title, items });
     }
 
-    if (lists.length === 0 || usedIndexes.size !== sourceItems.length) {
-      throw incompleteResponse("Gemini did not place every source item exactly once.");
+    const missingBySource = new Map();
+
+    for (const source of sourceItems) {
+      if (usedIndexes.has(source.index)) continue;
+
+      const sourceKey = String(source.sourceListIndex);
+      const group = missingBySource.get(sourceKey) || [];
+      group.push({ index: source.index, text: source.text });
+      missingBySource.set(sourceKey, group);
+    }
+
+    for (const [sourceKey, items] of missingBySource) {
+      const sourceList = task.rawLists?.[Number(sourceKey)];
+      const title = normalizeText(sourceList?.title, 40) || "Other items";
+      const matchingList = lists.find(
+        (list) => normalizeItemKey(list.title) === normalizeItemKey(title),
+      );
+
+      if (matchingList) matchingList.items.push(...items);
+      else lists.push({ title, items });
+
+      items.forEach((item) => usedIndexes.add(item.index));
+    }
+
+    if (lists.length === 0) {
+      throw incompleteResponse("Gemini returned no usable organization.");
     }
 
     return {
