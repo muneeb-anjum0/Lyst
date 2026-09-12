@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "365836472179",
+    "project_id": "lyst-e2185",
+    "storage_bucket": "lyst-e2185.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:365836472179:android:833b4f37c6566f9df97f06",
+        "android_client_info": {
+          "package_name": "com.muneebanjum.lyst"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "365836472179-9euun8305ofn9tglbgljkddr19l6igr9.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.muneebanjum.lyst",
+            "certificate_hash": "e59897df19bc5f27d88c503d16f3a7dec7cada54"
+          }
+        },
+        {
+          "client_id": "365836472179-jjm094ucfdnvp7c2c1nbd8kidde0d2kf.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDZjv2IAP82rti4wp4m6VrV7HtyHZbaQNU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "365836472179-jjm094ucfdnvp7c2c1nbd8kidde0d2kf.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
