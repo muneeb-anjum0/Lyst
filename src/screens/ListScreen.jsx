@@ -806,15 +806,6 @@ export function ListScreen({
       </motion.div>
 
       <header className="list-header">
-        <motion.button
-          className="text-action danger-outline-action"
-          type="button"
-          whileTap={{ scale: 0.94 }}
-          onClick={onBack}
-        >
-          Back
-        </motion.button>
-
         <div className="menu-container">
           <motion.button
             className="menu-button"

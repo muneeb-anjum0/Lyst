@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { App as CapacitorApp } from "@capacitor/app";
+import { Capacitor } from "@capacitor/core";
+import { StatusBar, Style as StatusBarStyle } from "@capacitor/status-bar";
 import "./styles.css";
 import {
   clearOfflineAccess,
@@ -86,6 +88,18 @@ export default function App() {
 
   const toastTimer = useRef(null);
   const undoTimer = useRef(null);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    Promise.all([
+      StatusBar.setOverlaysWebView({ overlay: false }),
+      StatusBar.setBackgroundColor({ color: "#151515" }),
+      StatusBar.setStyle({ style: StatusBarStyle.Light }),
+    ]).catch((error) => {
+      console.warn("Could not style the native status bar:", error);
+    });
+  }, []);
 
   useEffect(() => {
     let listener;
