@@ -229,7 +229,7 @@ export function HomeScreen({
               <motion.button
                 layout
                 key={list.id}
-                className={`list-row pastel-row-${(index % 5) + 1}`}
+                className="list-row"
                 type="button"
                 initial={
                   reduceMotion
@@ -270,7 +270,9 @@ export function HomeScreen({
                 }}
                 onClick={() => openListAfterPress(list)}
               >
-                <span className="list-accent" aria-hidden="true" />
+                <span className="list-folio" aria-hidden="true">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
 
                 <span className="list-row-copy">
                   <span className="list-title-text">{list.title}</span>

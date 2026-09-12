@@ -169,6 +169,22 @@ export function ListScreen({
     };
   }, []);
 
+  useEffect(() => {
+    function handleNativeBack(event) {
+      if (duplicatePrompt) setDuplicatePrompt(null);
+      else if (naturalPreview) setNaturalPreview(null);
+      else if (editingItem) setEditingItem(null);
+      else if (aiOpen) setAiOpen(false);
+      else if (menuOpen) setMenuOpen(false);
+      else return;
+
+      event.preventDefault();
+    }
+
+    window.addEventListener("lyst:native-back", handleNativeBack);
+    return () => window.removeEventListener("lyst:native-back", handleNativeBack);
+  }, [aiOpen, duplicatePrompt, editingItem, menuOpen, naturalPreview]);
+
   const activeItems = useMemo(
     () => items.filter((item) => !item.completed),
     [items],

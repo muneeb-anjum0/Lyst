@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { App as CapacitorApp } from "@capacitor/app";
 import "./styles.css";
 import {
   clearOfflineAccess,
@@ -85,6 +86,50 @@ export default function App() {
 
   const toastTimer = useRef(null);
   const undoTimer = useRef(null);
+
+  useEffect(() => {
+    let listener;
+    let disposed = false;
+
+    async function registerNativeBackHandler() {
+      listener = await CapacitorApp.addListener("backButton", () => {
+        if (confirmation) return setConfirmation(null);
+        if (editList) return setEditList(null);
+        if (optimizeListsOpen) return setOptimizeListsOpen(false);
+        if (archiveOpen) return setArchiveOpen(false);
+        if (searchOpen) return setSearchOpen(false);
+        if (accountOpen) return setAccountOpen(false);
+        if (newListOpen) return setNewListOpen(false);
+
+        const localBack = new CustomEvent("lyst:native-back", {
+          cancelable: true,
+        });
+        window.dispatchEvent(localBack);
+        if (localBack.defaultPrevented) return;
+
+        if (selectedList) return setSelectedList(null);
+        CapacitorApp.exitApp();
+      });
+
+      if (disposed) listener.remove();
+    }
+
+    registerNativeBackHandler();
+
+    return () => {
+      disposed = true;
+      listener?.remove();
+    };
+  }, [
+    accountOpen,
+    archiveOpen,
+    confirmation,
+    editList,
+    newListOpen,
+    optimizeListsOpen,
+    searchOpen,
+    selectedList,
+  ]);
 
   useEffect(() => {
     function handleUpdateAvailable() { setUpdateAvailable(true); }
