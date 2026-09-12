@@ -119,16 +119,6 @@ export function AccountSheet({
           </div>
         </div>
 
-        <span className="settings-section-label">Offline</span>
-
-        <div className="settings-row offline-access-note">
-          <div>
-            <strong>Offline access</strong>
-            <span>Available for up to 60 days after an online refresh.</span>
-          </div>
-          <span className="settings-chevron" aria-hidden="true">›</span>
-        </div>
-
         <motion.button
           className="account-signout-button"
           type="button"
