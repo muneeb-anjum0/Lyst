@@ -23,6 +23,7 @@
     "@capacitor/android": "^8.5.2",
     "@capacitor/app": "^8.1.1",
     "@capacitor/core": "^8.5.2",
+    "@capacitor/status-bar": "^8.0.3",
     "chrono-node": "^2.10.1",
     "firebase": "^12.17.1",
     "framer-motion": "^13.0.0",

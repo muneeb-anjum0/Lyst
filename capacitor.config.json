@@ -2,5 +2,12 @@
   "appId": "com.muneebanjum.lyst",
   "appName": "Lyst",
   "webDir": "dist",
-  "backgroundColor": "#ffffff"
+  "backgroundColor": "#f3f3f1",
+  "plugins": {
+    "StatusBar": {
+      "overlaysWebView": false,
+      "style": "LIGHT",
+      "backgroundColor": "#151515"
+    }
+  }
 }
