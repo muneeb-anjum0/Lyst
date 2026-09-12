@@ -1,11 +1,12 @@
 import { initializeApp } from "firebase/app";
+import { Capacitor } from "@capacitor/core";
 import { getAuth } from "firebase/auth";
 import {
-  CACHE_SIZE_UNLIMITED,
   getFirestore,
   initializeFirestore,
   persistentLocalCache,
   persistentMultipleTabManager,
+  persistentSingleTabManager,
 } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -29,8 +30,10 @@ if (firebaseReady) {
   try {
     db = initializeFirestore(firebaseApp, {
       localCache: persistentLocalCache({
-        cacheSizeBytes: CACHE_SIZE_UNLIMITED,
-        tabManager: persistentMultipleTabManager(),
+        cacheSizeBytes: 20 * 1024 * 1024,
+        tabManager: Capacitor.isNativePlatform()
+          ? persistentSingleTabManager()
+          : persistentMultipleTabManager(),
       }),
     });
   } catch (error) {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
+import { collection, getDocsFromCache, orderBy, query } from "firebase/firestore";
 import { db } from "../../lib/firebase.js";
 import { normalize } from "../../lib/appUtils.js";
 import { renderHighlightedText } from "../itemFormatting.jsx";
@@ -16,50 +16,44 @@ export function SearchSheet({
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!search.trim()) {
-      setItemMap({});
+    setLoading(true);
+    let active = true;
+
+    async function loadCachedItems() {
+      const entries = await Promise.all(
+        lists.map(async (list) => {
+          try {
+            const snapshot = await getDocsFromCache(
+              query(
+                collection(db, "users", user.uid, "lists", list.id, "items"),
+                orderBy("createdAt", "asc"),
+              ),
+            );
+
+            return [
+              list.id,
+              snapshot.docs.map((itemDocument) => ({
+                id: itemDocument.id,
+                ...itemDocument.data(),
+              })),
+            ];
+          } catch {
+            return [list.id, []];
+          }
+        }),
+      );
+
+      if (!active) return;
+      setItemMap(Object.fromEntries(entries));
       setLoading(false);
-      return undefined;
     }
 
-    setLoading(true);
-
-    const unsubscribers = lists.map((list) => {
-      const itemsQuery = query(
-        collection(
-          db,
-          "users",
-          user.uid,
-          "lists",
-          list.id,
-          "items",
-        ),
-        orderBy("createdAt", "asc"),
-      );
-
-      return onSnapshot(
-        itemsQuery,
-        (snapshot) => {
-          setItemMap((current) => ({
-            ...current,
-            [list.id]: snapshot.docs.map((itemDocument) => ({
-              id: itemDocument.id,
-              ...itemDocument.data(),
-            })),
-          }));
-
-          setLoading(false);
-        },
-        () => {
-          setLoading(false);
-        },
-      );
-    });
+    loadCachedItems();
 
     return () => {
-      unsubscribers.forEach((unsubscribe) => unsubscribe());
+      active = false;
     };
-  }, [search, lists, user.uid]);
+  }, [lists, user.uid]);
 
   const results = useMemo(() => {
     const term = normalize(search);

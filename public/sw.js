@@ -1,4 +1,4 @@
-const APP_CACHE = "lyst-app-v7";
+const APP_CACHE = "lyst-app-v8";
 const META_CACHE = "lyst-meta-v6";
 
 const CACHE_REFRESH_KEY = "/__lyst_cache_refresh__";

@@ -43,7 +43,7 @@ import {
   addDoc,
   collection,
   doc,
-  getDocs,
+  getCountFromServer,
   onSnapshot,
   orderBy,
   query,
@@ -309,9 +309,6 @@ export default function App() {
 
     return onSnapshot(
       listsQuery,
-      {
-        includeMetadataChanges: true,
-      },
       (snapshot) => {
         const nextLists = snapshot.docs.map((listDocument) => ({
           id: listDocument.id,
@@ -359,7 +356,7 @@ export default function App() {
         if (cancelled) return;
 
         try {
-          const snapshot = await getDocs(
+          const snapshot = await getCountFromServer(
             collection(
               db,
               "users",
@@ -370,19 +367,10 @@ export default function App() {
             ),
           );
 
-          let completedCount = 0;
-
-          snapshot.forEach((itemDocument) => {
-            if (itemDocument.data()?.completed) {
-              completedCount += 1;
-            }
-          });
-
           await updateDoc(
             doc(db, "users", user.uid, "lists", list.id),
             {
-              itemCount: snapshot.size,
-              completedCount,
+              itemCount: snapshot.data().count,
             },
           );
         } catch (error) {
@@ -420,7 +408,6 @@ export default function App() {
                 ).length,
               )
             : 0,
-          completedCount: 0,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         },
@@ -609,9 +596,6 @@ export default function App() {
           title: list.title,
           archived: Boolean(list.archived),
           itemCount: deletedItems.length,
-          completedCount: deletedItems.filter(
-            (item) => Boolean(item.data?.completed),
-          ).length,
           createdAt: list.createdAt || serverTimestamp(),
           updatedAt: serverTimestamp(),
         });

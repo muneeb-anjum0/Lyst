@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { addDoc, collection, deleteDoc, doc, getDocs, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, writeBatch } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, writeBatch } from "firebase/firestore";
 import { adjustListSummary } from "../services/ai.js";
 import { cloneFirestoreData } from "../lib/appUtils.js";
 import { db } from "../lib/firebase.js";
@@ -30,8 +30,6 @@ export function ListScreen({
   const [naturalPreview, setNaturalPreview] = useState(null);
   const [duplicatePrompt, setDuplicatePrompt] = useState(null);
   const [aiOpen, setAiOpen] = useState(false);
-  const [itemsListenerVersion, setItemsListenerVersion] = useState(0);
-  const lastItemsRefreshRef = useRef(0);
 
   const inputRef = useRef(null);
   const longPressTimer = useRef(null);
@@ -43,8 +41,6 @@ export function ListScreen({
 
   useEffect(() => {
     let active = true;
-    let receivedSnapshot = false;
-
     setLoading(true);
 
     const itemsQuery = query(
@@ -62,8 +58,6 @@ export function ListScreen({
     function applySnapshot(snapshot) {
       if (!active) return;
 
-      receivedSnapshot = true;
-
       setItems(
         snapshot.docs.map((itemDocument) => ({
           id: itemDocument.id,
@@ -76,92 +70,30 @@ export function ListScreen({
 
     const unsubscribe = onSnapshot(
       itemsQuery,
-      {
-        includeMetadataChanges: true,
-      },
       applySnapshot,
       (error) => {
         if (!active) return;
 
         console.error("Items listener failed:", error);
 
-        // Do not leave the list permanently stuck. The recovery fetch below
-        // can still succeed even if the live listener has a transient problem.
         setLoading(false);
 
         showToast(
           navigator.onLine
-            ? "Refreshing your items..."
+            ? "Could not load the items. Try reopening this list."
             : "No cached items are available yet.",
         );
       },
     );
 
-    const recoveryTimer = window.setTimeout(async () => {
-      if (!active || receivedSnapshot) return;
-
-      try {
-        const snapshot = await getDocs(itemsQuery);
-
-        if (!active) return;
-
-        applySnapshot(snapshot);
-      } catch (error) {
-        if (!active) return;
-
-        console.warn("Items recovery fetch failed:", error);
-        setLoading(false);
-      }
-    }, 1800);
-
     return () => {
       active = false;
-      window.clearTimeout(recoveryTimer);
       unsubscribe();
     };
   // showToast is intentionally omitted: notification callback changes should
   // not tear down and recreate the Firestore subscription.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [list.id, user.uid, itemsListenerVersion]);
-
-  useEffect(() => {
-    function refreshItemsListener() {
-      const now = Date.now();
-
-      // Mobile Safari/PWAs can fire focus + visibilitychange together.
-      // Throttle them so we recreate the listener only once.
-      if (now - lastItemsRefreshRef.current < 700) return;
-
-      lastItemsRefreshRef.current = now;
-      setItemsListenerVersion((version) => version + 1);
-    }
-
-    function handleVisibilityChange() {
-      if (document.visibilityState === "visible") {
-        refreshItemsListener();
-      }
-    }
-
-    function handleOnline() {
-      refreshItemsListener();
-    }
-
-    window.addEventListener("focus", refreshItemsListener);
-    window.addEventListener("online", handleOnline);
-    document.addEventListener(
-      "visibilitychange",
-      handleVisibilityChange,
-    );
-
-    return () => {
-      window.removeEventListener("focus", refreshItemsListener);
-      window.removeEventListener("online", handleOnline);
-      document.removeEventListener(
-        "visibilitychange",
-        handleVisibilityChange,
-      );
-    };
-  }, [list.id]);
+  }, [list.id, user.uid]);
 
   useEffect(() => {
     return () => {
@@ -287,7 +219,7 @@ export function ListScreen({
       },
     );
 
-    await adjustListSummary(user.uid, list.id, 1, 0);
+    await adjustListSummary(user.uid, list.id, 1);
   }
 
   async function mergeDuplicate(existingItem, parsedItem) {
@@ -406,12 +338,6 @@ export function ListScreen({
         },
       );
 
-      await adjustListSummary(
-        user.uid,
-        list.id,
-        0,
-        nextCompleted ? 1 : -1,
-      );
     } catch (error) {
       console.error(error);
       showToast("Could not update the item.");
@@ -482,21 +408,11 @@ export function ListScreen({
 
     try {
       await deleteDoc(itemReference);
-      await adjustListSummary(
-        user.uid,
-        list.id,
-        -1,
-        item.completed ? -1 : 0,
-      );
+      await adjustListSummary(user.uid, list.id, -1);
 
       showUndo("Item deleted.", async () => {
         await setDoc(itemReference, backup);
-        await adjustListSummary(
-          user.uid,
-          list.id,
-          1,
-          item.completed ? 1 : 0,
-        );
+        await adjustListSummary(user.uid, list.id, 1);
       });
     } catch (error) {
       console.error(error);
@@ -533,12 +449,7 @@ export function ListScreen({
       });
 
       await batch.commit();
-      await adjustListSummary(
-        user.uid,
-        list.id,
-        -completedItems.length,
-        -completedItems.length,
-      );
+      await adjustListSummary(user.uid, list.id, -completedItems.length);
 
       setMenuOpen(false);
 
@@ -561,12 +472,7 @@ export function ListScreen({
         });
 
         await restoreBatch.commit();
-        await adjustListSummary(
-          user.uid,
-          list.id,
-          completedItems.length,
-          completedItems.length,
-        );
+        await adjustListSummary(user.uid, list.id, completedItems.length);
       });
     } catch (error) {
       console.error(error);
@@ -627,12 +533,7 @@ export function ListScreen({
       });
 
       await batch.commit();
-      await adjustListSummary(
-        user.uid,
-        list.id,
-        uniqueItems.length,
-        0,
-      );
+      await adjustListSummary(user.uid, list.id, uniqueItems.length);
       setAiOpen(false);
       showToast(
         `${uniqueItems.length} ${
@@ -878,17 +779,6 @@ export function ListScreen({
             className="ai-assist-button"
             type="button"
             disabled={!navigator.onLine}
-            animate={
-              reduceMotion
-                ? {}
-                : { scale: [1, 1.04, 1], rotate: [0, 4, 0] }
-            }
-            transition={{
-              duration: 0.7,
-              repeat: reduceMotion ? 0 : Infinity,
-              repeatDelay: 5.3,
-              ease: "easeInOut",
-            }}
             whileHover={reduceMotion ? {} : { y: -1, scale: 1.04 }}
             whileTap={{ scale: 0.9 }}
             onClick={() => setAiOpen(true)}
@@ -917,54 +807,24 @@ export function ListScreen({
             <ItemSkeleton />
           </>
         ) : sortedItems.length > 0 ? (
-          <AnimatePresence initial={false}>
+          <>
             {sortedItems.map((item) => {
               const metadata = getItemMetadata(item);
 
               return (
-                <motion.article
-                  layout
+                <article
                   key={item.id}
                   className={`item-row ${
                     item.completed ? "completed" : ""
                   }`}
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, x: 18 }}
-                  transition={{
-                    layout: {
-                      type: "spring",
-                      stiffness: 630,
-                      damping: 28,
-                    },
-                  }}
                 >
-                  <motion.button
+                  <button
                     className="check-button"
                     type="button"
-                    animate={{
-                      backgroundColor: item.completed
-                        ? "#CFEADF"
-                        : "#FFFFFF",
-                      borderColor: item.completed
-                        ? "#B6D7C7"
-                        : "#D6CDDC",
-                    }}
-                    whileTap={{ scale: 0.8 }}
                     onClick={() => toggleItem(item)}
                   >
-                    <AnimatePresence>
-                      {item.completed && (
-                        <motion.span
-                          initial={{ scale: 0, rotate: -35 }}
-                          animate={{ scale: 1, rotate: 0 }}
-                          exit={{ scale: 0 }}
-                        >
-                          ✓
-                        </motion.span>
-                      )}
-                    </AnimatePresence>
-                  </motion.button>
+                    {item.completed && <span>✓</span>}
+                  </button>
 
                   <button
                     className="item-text"
@@ -1014,10 +874,10 @@ export function ListScreen({
                       ×
                     </button>
                   </div>
-                </motion.article>
+                </article>
               );
             })}
-          </AnimatePresence>
+          </>
         ) : (
           <motion.div
             className="empty-items"
@@ -1079,8 +939,9 @@ export function ListScreen({
           type="submit"
           disabled={!newItem.trim() || adding}
           whileTap={{ scale: 0.84 }}
+          aria-label="Add item"
         >
-          +
+          <span className="floating-button-plus" aria-hidden="true" />
         </motion.button>
       </form>
 

@@ -1,6 +1,11 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { Capacitor } from "@capacitor/core";
 import App from "./App.jsx";
+
+if (Capacitor.isNativePlatform()) {
+  document.documentElement.classList.add("capacitor-native");
+}
 
 let waitingRegistration = null;
 let updateVisible = false;
@@ -168,7 +173,7 @@ async function registerServiceWorker() {
   }
 }
 
-if (import.meta.env.PROD) {
+if (import.meta.env.PROD && !Capacitor.isNativePlatform()) {
   window.addEventListener("load", registerServiceWorker);
 }
 

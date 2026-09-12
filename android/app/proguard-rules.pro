@@ -1,4 +1,12 @@
 # Add project specific ProGuard rules here.
+
+# The Firebase Authentication plugin ships optional Facebook handlers, but
+# Lyst only enables Google. These classes are intentionally absent.
+-dontwarn com.facebook.CallbackManager$Factory
+-dontwarn com.facebook.CallbackManager
+-dontwarn com.facebook.FacebookCallback
+-dontwarn com.facebook.login.LoginManager
+-dontwarn com.facebook.login.widget.LoginButton
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.
 #
