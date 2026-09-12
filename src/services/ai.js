@@ -4,7 +4,7 @@ import { auth, db } from "../lib/firebase.js";
 
 const LYST_AI_URL = import.meta.env.VITE_LYST_AI_URL || "";
 
-export const DAILY_AI_REQUEST_LIMIT = 20;
+export const DAILY_AI_REQUEST_LIMIT = 10;
 
 export async function callLystAi(payload) {
   if (!LYST_AI_URL) throw new Error("Lyst AI URL is not configured.");
@@ -74,14 +74,14 @@ export async function adjustListSummary(
   userId,
   listId,
   itemDelta = 0,
-  completedDelta = 0,
 ) {
   if (!db || !userId || !listId) return;
 
-  const changes = { updatedAt: serverTimestamp() };
+  const changes = {};
   if (itemDelta) changes.itemCount = increment(itemDelta);
-  if (completedDelta) changes.completedCount = increment(completedDelta);
-  if (Object.keys(changes).length <= 1) return;
+  if (Object.keys(changes).length === 0) return;
+
+  changes.updatedAt = serverTimestamp();
 
   await updateDoc(doc(db, "users", userId, "lists", listId), changes);
 }

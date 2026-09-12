@@ -227,7 +227,6 @@ export function HomeScreen({
           <AnimatePresence initial={false}>
             {lists.map((list, index) => (
               <motion.button
-                layout
                 key={list.id}
                 className="list-row"
                 type="button"

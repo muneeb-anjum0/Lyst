@@ -6,7 +6,7 @@ import {
   safeNumber,
 } from "./utils.js";
 
-const MAX_REQUESTS_PER_USER_PER_DAY = 20;
+const MAX_REQUESTS_PER_USER_PER_DAY = 10;
 const MAX_TOKENS_PER_USER_PER_MONTH = 10_000;
 const MAX_TOKENS_GLOBAL_PER_MONTH = 250_000;
 const LIMITER_VERSION = "v8";
@@ -569,4 +569,3 @@ export async function budgetCall(
     },
   );
 }
-

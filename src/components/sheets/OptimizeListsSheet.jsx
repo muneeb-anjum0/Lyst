@@ -131,7 +131,6 @@ export function OptimizeListsSheet({
           title: optimizedList.title,
           archived: false,
           itemCount: optimizedList.items.length,
-          completedCount: 0,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
