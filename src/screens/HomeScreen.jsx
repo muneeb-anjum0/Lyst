@@ -311,8 +311,9 @@ export function HomeScreen({
           damping: 22,
         }}
         onClick={onCreate}
+        aria-label="Create a new list"
       >
-        +
+        <span className="floating-button-plus" aria-hidden="true" />
       </motion.button>
     </motion.main>
   );

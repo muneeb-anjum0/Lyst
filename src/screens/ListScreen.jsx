@@ -900,25 +900,9 @@ export function ListScreen({
               viewBox="0 0 32 32"
               aria-hidden="true"
             >
-              <defs>
-                <linearGradient
-                  id="lyst-gemini-gradient"
-                  x1="4"
-                  y1="4"
-                  x2="28"
-                  y2="28"
-                  gradientUnits="userSpaceOnUse"
-                >
-                  <stop offset="0" stopColor="#A9C8F8" />
-                  <stop offset="0.34" stopColor="#C7B8F2" />
-                  <stop offset="0.67" stopColor="#F1BED7" />
-                  <stop offset="1" stopColor="#F6D7B7" />
-                </linearGradient>
-              </defs>
-
               <path
                 d="M16 3.2C17.25 10.55 21.45 14.75 28.8 16C21.45 17.25 17.25 21.45 16 28.8C14.75 21.45 10.55 17.25 3.2 16C10.55 14.75 14.75 10.55 16 3.2Z"
-                fill="url(#lyst-gemini-gradient)"
+                fill="currentColor"
               />
             </svg>
           </motion.button>
