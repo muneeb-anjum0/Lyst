@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { GoogleAuthProvider, browserLocalPersistence, createUserWithEmailAndPassword, sendPasswordResetEmail, setPersistence, signInWithEmailAndPassword, signInWithPopup } from "firebase/auth";
+import { Capacitor } from "@capacitor/core";
+import { FirebaseAuthentication } from "@capacitor-firebase/authentication";
+import { GoogleAuthProvider, browserLocalPersistence, createUserWithEmailAndPassword, sendPasswordResetEmail, setPersistence, signInWithCredential, signInWithEmailAndPassword, signInWithPopup } from "firebase/auth";
 import { getAuthError } from "../lib/appUtils.js";
 import { auth } from "../lib/firebase.js";
 import { refreshOfflineAccess } from "../services/offlineAccess.js";
@@ -26,9 +28,27 @@ export function AuthScreen({ showToast }) {
       setWorking(true);
       await preparePersistence();
 
-      const provider = new GoogleAuthProvider();
+      if (Capacitor.isNativePlatform()) {
+        const result = await FirebaseAuthentication.signInWithGoogle({
+          skipNativeAuth: true,
+        });
+        const idToken = result.credential?.idToken;
+        const accessToken = result.credential?.accessToken;
 
-      await signInWithPopup(auth, provider);
+        if (!idToken && !accessToken) {
+          throw new Error("Google did not return a sign-in credential.");
+        }
+
+        const credential = GoogleAuthProvider.credential(
+          idToken || null,
+          accessToken || null,
+        );
+        await signInWithCredential(auth, credential);
+      } else {
+        const provider = new GoogleAuthProvider();
+        await signInWithPopup(auth, provider);
+      }
+
       await refreshOfflineAccess();
 
     } catch (error) {

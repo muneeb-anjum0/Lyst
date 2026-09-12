@@ -8,6 +8,10 @@
       "overlaysWebView": false,
       "style": "LIGHT",
       "backgroundColor": "#151515"
+    },
+    "FirebaseAuthentication": {
+      "skipNativeAuth": true,
+      "providers": ["google.com"]
     }
   }
 }
