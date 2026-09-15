@@ -1,4 +1,4 @@
-const APP_CACHE = "lyst-app-v8";
+const APP_CACHE = "lyst-app-v9";
 const META_CACHE = "lyst-meta-v6";
 
 const CACHE_REFRESH_KEY = "/__lyst_cache_refresh__";
@@ -16,19 +16,17 @@ const CORE_FILES = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches
-      .open(APP_CACHE)
-      .then((cache) => cache.addAll(CORE_FILES)),
+    Promise.all([
+      caches
+        .open(APP_CACHE)
+        .then((cache) => cache.addAll(CORE_FILES)),
+      self.skipWaiting(),
+    ]),
   );
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    Promise.all([
-      deleteOldCaches(),
-      self.clients.claim(),
-    ]),
-  );
+  event.waitUntil(activateLatestVersion());
 });
 
 self.addEventListener("message", (event) => {
@@ -212,6 +210,29 @@ async function deleteOldCaches() {
           cacheName !== META_CACHE,
       )
       .map((cacheName) => caches.delete(cacheName)),
+  );
+}
+
+async function activateLatestVersion() {
+  const cacheNames = await caches.keys();
+  const isUpgrade = cacheNames.some(
+    (cacheName) =>
+      cacheName.startsWith("lyst-app-") &&
+      cacheName !== APP_CACHE,
+  );
+
+  await deleteOldCaches();
+  await self.clients.claim();
+
+  if (!isUpgrade) return;
+
+  const clients = await self.clients.matchAll({
+    type: "window",
+    includeUncontrolled: true,
+  });
+
+  await Promise.all(
+    clients.map((client) => client.navigate(client.url)),
   );
 }
 
